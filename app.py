@@ -3,175 +3,166 @@ import json
 import uuid
 import pandas as pd
 import streamlit as st
+from PIL import Image
 
 try:
     from openai import OpenAI
 except Exception:
     OpenAI = None
 
-APP_TITLE = "IBEX Performance Audit"
-DATA_PRODUCTS = os.path.join("data", "products.csv")
-DATA_EXCLUSIONS = os.path.join("data", "exclusions.csv")
+# ----------------------------
+# CONFIG
+# ----------------------------
+APP_TITLE = "IBEX"
+PRODUCTS_CSV = "products.csv"
+EXCLUSIONS_CSV = "exclusions.csv"
+LOGO_PATH = "assets/ibex_logo.png"
 
-st.set_page_config(page_title=APP_TITLE, page_icon="🦌", layout="wide")
+# ----------------------------
+# PAGE SETUP
+# ----------------------------
+logo_img = Image.open(LOGO_PATH)
 
+st.set_page_config(
+    page_title="IBEX Performance Audit",
+    page_icon=logo_img,
+    layout="wide"
+)
+
+# Hide Streamlit chrome for cleaner SaaS look
+st.markdown("""
+<style>
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header {visibility: hidden;}
+</style>
+""", unsafe_allow_html=True)
+
+# ----------------------------
+# DATA LOADERS
+# ----------------------------
 @st.cache_data(show_spinner=False)
-def load_products() -> pd.DataFrame:
-    df = pd.read_csv(DATA_PRODUCTS)
+def load_products():
+    df = pd.read_csv(PRODUCTS_CSV)
     df.columns = [c.strip() for c in df.columns]
+
     required = [
-        "Product_ID","Category","Ingredient","Brand","Store","Link","Serving_Form",
-        "Typical_Use","Timing","Avoid_If","Third_Party_Tested","NSF_Certified",
-        "Price","Est_Monthly_Cost","Notes"
+        "Product_ID","Category","Ingredient","Brand","Store","Link",
+        "Serving_Form","Typical_Use","Timing","Avoid_If",
+        "Third_Party_Tested","NSF_Certified","Price","Est_Monthly_Cost","Notes"
     ]
     missing = [c for c in required if c not in df.columns]
     if missing:
-        raise ValueError(f"products.csv missing columns: {missing}")
+        raise ValueError(f"Missing columns in products.csv: {missing}")
+
     return df
 
 @st.cache_data(show_spinner=False)
-def load_exclusions() -> pd.DataFrame:
-    df = pd.read_csv(DATA_EXCLUSIONS)
+def load_exclusions():
+    df = pd.read_csv(EXCLUSIONS_CSV)
     df.columns = [c.strip() for c in df.columns]
-    if "Excluded_Category_or_Ingredient" not in df.columns:
-        if "excluded_item" in df.columns:
-            df = df.rename(columns={"excluded_item":"Excluded_Category_or_Ingredient"})
-        else:
-            raise ValueError("exclusions.csv must include 'Excluded_Category_or_Ingredient'")
-    if "Reason" not in df.columns:
-        raise ValueError("exclusions.csv must include 'Reason'")
-    return df[["Excluded_Category_or_Ingredient","Reason"]]
 
+    if "Excluded_Category_or_Ingredient" not in df.columns or "Reason" not in df.columns:
+        raise ValueError("exclusions.csv must contain Excluded_Category_or_Ingredient and Reason columns")
+
+    return df
+
+# ----------------------------
+# AI HELPERS
+# ----------------------------
 def get_openai_client():
-    api_key = st.secrets.get("OPENAI_API_KEY", None) if hasattr(st, "secrets") else None
-    api_key = api_key or os.getenv("OPENAI_API_KEY")
+    api_key = st.secrets.get("OPENAI_API_KEY", None)
     if not api_key:
-        return None
-    if OpenAI is None:
-        st.error("openai package not installed. Install requirements.txt.")
-        return None
+        st.error("OPENAI_API_KEY not set in Streamlit Secrets.")
+        st.stop()
     return OpenAI(api_key=api_key)
 
-def shortlist_products(products: pd.DataFrame, goals: list[str], gi_sensitive: bool, caffeine_sensitive: bool) -> pd.DataFrame:
+def shortlist_products(products, goals, gi_sensitive, caffeine_sensitive):
     p = products.copy()
+
     if goals:
         mask = False
         for g in goals:
             mask = mask | p["Typical_Use"].astype(str).str.contains(g, case=False, na=False)
-        if mask is not False:
-            p = p[mask]
+        p = p[mask] if mask is not False else p
+
     if gi_sensitive:
         p = p[~p["Avoid_If"].astype(str).str.contains("GI", case=False, na=False)]
     if caffeine_sensitive:
         p = p[~p["Avoid_If"].astype(str).str.contains("caffeine", case=False, na=False)]
+
     if len(p) < 25:
         p = products.copy()
+
     return p.head(70)
 
-def build_payload(intake: dict, approved_products: list[dict], exclusions: list[dict]) -> str:
-    schema = {
-        "flags": ["string"],
-        "consult_professional": "boolean",
-        "included_product_ids": ["IBX-0001"],
-        "excluded_product_ids": ["IBX-0002"],
-        "schedule": {"AM": ["IBX-0001"], "PM": ["IBX-0003"], "Training": ["IBX-0004"]},
-        "reasons": {"IBX-0001": "short non-medical reason"},
-        "notes_for_athlete": ["bullet", "bullet"]
-    }
+def run_ai(intake, products_shortlist, exclusions):
+    client = get_openai_client()
+
+    approved_products = products_shortlist[[
+        "Product_ID","Category","Ingredient","Brand","Store",
+        "Serving_Form","Typical_Use","Timing","Avoid_If",
+        "Third_Party_Tested","NSF_Certified","Notes"
+    ]].to_dict(orient="records")
+
+    system_prompt = (
+        "You are IBEX, an AI that builds personalized supplement systems for athletes. "
+        "You are NOT a medical provider. Do not diagnose or treat. "
+        "Only select products from the approved list. "
+        "Never select anything matching the exclusions list. "
+        "Return ONLY valid JSON in the required format."
+    )
+
     payload = {
         "intake": intake,
         "approved_products": approved_products,
-        "exclusions": exclusions,
-        "output_format": schema
+        "exclusions": exclusions.to_dict(orient="records"),
+        "output_format": {
+            "flags": [],
+            "consult_professional": False,
+            "included_product_ids": [],
+            "schedule": {"AM": [], "PM": [], "Training": []},
+            "reasons": {},
+            "notes_for_athlete": []
+        }
     }
-    return json.dumps(payload, ensure_ascii=False)
 
-def run_ai(intake: dict, products_shortlist: pd.DataFrame, exclusions_df: pd.DataFrame) -> dict:
-    client = get_openai_client()
-    if client is None:
-        raise RuntimeError("Missing OPENAI_API_KEY (Streamlit Secrets or env var).")
-    approved = products_shortlist[[
-        "Product_ID","Category","Ingredient","Brand","Store","Serving_Form",
-        "Typical_Use","Timing","Avoid_If","Third_Party_Tested","NSF_Certified","Notes"
-    ]].to_dict(orient="records")
-    exclusions = exclusions_df.to_dict(orient="records")
-
-    system = (
-        "You are IBEX, an assistant that organizes a personalized supplement system for student-athletes. "
-        "You are NOT a medical provider. Do NOT diagnose, treat, or make medical claims. "
-        "Only select products from approved_products. "
-        "Never select anything that matches the EXCLUSIONS list. "
-        "If intake suggests a medical issue or medication interaction, set consult_professional=true and keep recommendations conservative. "
-        "Return ONLY valid JSON matching output_format."
-    )
-
-    model = st.secrets.get("OPENAI_MODEL", "gpt-4.1-mini") if hasattr(st, "secrets") else os.getenv("OPENAI_MODEL","gpt-4.1-mini")
-
-    resp = client.chat.completions.create(
-        model=model,
+    response = client.chat.completions.create(
+        model=st.secrets.get("OPENAI_MODEL", "gpt-4.1-mini"),
         messages=[
-            {"role":"system","content":system},
-            {"role":"user","content":build_payload(intake, approved, exclusions)}
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": json.dumps(payload)}
         ],
         temperature=0.2
     )
-    content = resp.choices[0].message.content.strip()
-    try:
-        return json.loads(content)
-    except Exception:
-        start = content.find("{")
-        end = content.rfind("}")
-        if start != -1 and end != -1 and end > start:
-            return json.loads(content[start:end+1])
-        raise
 
-def render_products(product_ids: list[str], products_df: pd.DataFrame, reasons: dict):
-    prod_map = products_df.set_index("Product_ID").to_dict(orient="index")
-    cols = st.columns(3)
-    for idx, pid in enumerate(product_ids):
-        p = prod_map.get(pid)
-        if not p:
-            continue
-        with cols[idx % 3]:
-            st.markdown(f"### {p['Brand']} — {p['Ingredient']}")
-            st.write(f"**Category:** {p['Category']}")
-            st.write(f"**Store:** {p['Store']}")
-            st.write(f"**Form:** {p['Serving_Form']}")
-            st.write(f"**Timing (default):** {p['Timing']}")
-            st.write(f"**Reason:** {reasons.get(pid, 'Personalized to your audit')}")
-            link = str(p.get("Link","")).strip()
-            if link and link != "in-store" and link.startswith("http"):
-                st.link_button("View / Reference", link)
-            st.divider()
+    content = response.choices[0].message.content.strip()
+    start, end = content.find("{"), content.rfind("}")
+    return json.loads(content[start:end+1])
 
-def render_schedule(schedule: dict, products_df: pd.DataFrame):
-    prod_map = products_df.set_index("Product_ID").to_dict(orient="index")
-    scols = st.columns(3)
-    for j, key in enumerate(["AM","PM","Training"]):
-        with scols[j]:
-            st.markdown(f"**{key}**")
-            items = schedule.get(key, []) if isinstance(schedule, dict) else []
-            if not items:
-                st.write("—")
-                continue
-            for pid in items:
-                p = prod_map.get(pid, {})
-                st.write(f"- {p.get('Ingredient', pid)} ({p.get('Brand','')})")
+# ----------------------------
+# UI HEADER
+# ----------------------------
+col1, col2 = st.columns([1, 5])
+with col1:
+    st.image(LOGO_PATH, width=110)
+with col2:
+    st.markdown("## IBEX")
+    st.caption("Personalized performance systems for athletes")
 
-st.title("🦌 IBEX")
-st.caption("Personalized performance systems. Not medical advice.")
+st.divider()
 
+# ----------------------------
+# LOAD DATA
+# ----------------------------
 products = load_products()
-exclusions_df = load_exclusions()
+exclusions = load_exclusions()
 
-with st.expander("Admin: data sanity check", expanded=False):
-    st.write(f"Products loaded: {len(products)}")
-    st.write(f"Exclusions loaded: {len(exclusions_df)}")
-
-STRIPE_BASIC_LINK = st.secrets.get("STRIPE_BASIC_LINK", "") if hasattr(st, "secrets") else os.getenv("STRIPE_BASIC_LINK","")
-STRIPE_PERF_LINK = st.secrets.get("STRIPE_PERF_LINK", "") if hasattr(st, "secrets") else os.getenv("STRIPE_PERF_LINK","")
-
+# ----------------------------
+# QUESTIONNAIRE
+# ----------------------------
 st.header("Performance Audit")
+
 with st.form("audit"):
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -180,104 +171,110 @@ with st.form("audit"):
         school = st.text_input("School", value="Lehigh")
     with c2:
         sport = st.text_input("Sport")
-        position = st.text_input("Position / event")
-        season_status = st.selectbox("Season status", ["In-season","Pre-season","Off-season"])
+        position = st.text_input("Position / Event")
+        season = st.selectbox("Season status", ["In-season", "Pre-season", "Off-season"])
     with c3:
         training_days = st.slider("Training days/week", 0, 7, 5)
         intensity = st.slider("Training intensity (1–10)", 1, 10, 7)
-        travel = st.selectbox("Travel frequency", ["Never","Sometimes","Often"])
+        travel = st.selectbox("Travel frequency", ["Never", "Sometimes", "Often"])
 
-    st.subheader("Goals")
-    goals = st.multiselect("Select all that apply", ["strength","endurance","recovery","sleep","gut","joints","focus","general health"])
+    goals = st.multiselect(
+        "Primary goals",
+        ["strength","endurance","recovery","sleep","gut","joints","focus","general health"]
+    )
 
-    st.subheader("Recovery & lifestyle")
-    c4, c5, c6 = st.columns(3)
+    c4, c5 = st.columns(2)
     with c4:
-        sleep_hours = st.number_input("Sleep hours/night", min_value=0.0, max_value=12.0, value=7.0, step=0.5)
+        sleep_hours = st.number_input("Sleep hours/night", 0.0, 12.0, 7.0, 0.5)
         sleep_quality = st.slider("Sleep quality (1–10)", 1, 10, 6)
     with c5:
-        stress = st.slider("Stress (1–10)", 1, 10, 6)
+        stress = st.slider("Stress level (1–10)", 1, 10, 6)
         soreness = st.slider("Soreness/Fatigue (1–10)", 1, 10, 6)
-    with c6:
-        gi_sensitive = st.checkbox("GI sensitive / stomach issues", value=False)
-        caffeine_sensitive = st.checkbox("Caffeine sensitive", value=False)
 
-    st.subheader("Current stack / constraints")
-    current_supps = st.text_area("What supplements are you already taking (if any)?")
-    avoid_ingredients = st.text_input("Any ingredients you want to avoid?")
-    open_notes = st.text_area("Anything else about your training, recovery, schedule, or concerns you want us to know?")
+    gi_sensitive = st.checkbox("GI sensitive")
+    caffeine_sensitive = st.checkbox("Caffeine sensitive")
 
-    consent = st.checkbox("I understand this is not medical advice and I should consult a professional for medical concerns.")
+    current_stack = st.text_area("Current supplements (if any)")
+    avoid_ingredients = st.text_input("Ingredients to avoid")
+    open_notes = st.text_area("Anything else we should know?")
+
+    consent = st.checkbox("I understand this is not medical advice.")
     submitted = st.form_submit_button("Build my IBEX system")
 
+# ----------------------------
+# RESULTS
+# ----------------------------
 if submitted:
     if not consent:
-        st.error("Please check the consent box to proceed.")
+        st.error("Consent is required.")
         st.stop()
 
     rid = str(uuid.uuid4())
+
     intake = {
-        "rid": rid,
+        "id": rid,
         "name": name,
         "email": email,
         "school": school,
         "sport": sport,
         "position": position,
-        "season_status": season_status,
-        "training_days_per_week": training_days,
-        "intensity_1_to_10": intensity,
-        "travel_frequency": travel,
+        "season": season,
+        "training_days": training_days,
+        "intensity": intensity,
+        "travel": travel,
         "goals": goals,
         "sleep_hours": sleep_hours,
-        "sleep_quality_1_to_10": sleep_quality,
-        "stress_1_to_10": stress,
-        "soreness_1_to_10": soreness,
+        "sleep_quality": sleep_quality,
+        "stress": stress,
+        "soreness": soreness,
         "gi_sensitive": gi_sensitive,
         "caffeine_sensitive": caffeine_sensitive,
-        "current_supplements": current_supps,
+        "current_stack": current_stack,
         "avoid_ingredients": avoid_ingredients,
-        "open_notes": open_notes
+        "notes": open_notes
     }
 
     shortlist = shortlist_products(products, goals, gi_sensitive, caffeine_sensitive)
 
     with st.spinner("Analyzing your audit and building your system…"):
-        ai_out = run_ai(intake, shortlist, exclusions_df)
+        ai = run_ai(intake, shortlist, exclusions)
 
-    st.success("System ready.")
-    flags = ai_out.get("flags", [])
-    consult = ai_out.get("consult_professional", False)
-    included = ai_out.get("included_product_ids", [])
-    schedule = ai_out.get("schedule", {})
-    reasons = ai_out.get("reasons", {})
-    notes = ai_out.get("notes_for_athlete", [])
+    st.success("Your system is ready.")
 
-    st.subheader("Your IBEX System")
-    if consult:
-        st.warning("Based on what you shared, we recommend consulting a qualified professional. We kept your plan conservative.")
-    if flags:
-        st.caption("Signals detected: " + ", ".join(flags))
+    if ai.get("consult_professional"):
+        st.warning("We recommend consulting a qualified professional before making changes.")
 
-    render_products(included, products, reasons)
+    prod_map = products.set_index("Product_ID").to_dict(orient="index")
 
-    st.subheader("Schedule")
-    render_schedule(schedule, products)
+    st.subheader("Recommended System")
+    cols = st.columns(3)
+    for i, pid in enumerate(ai["included_product_ids"]):
+        p = prod_map.get(pid)
+        if not p:
+            continue
+        with cols[i % 3]:
+            st.markdown(f"### {p['Brand']} — {p['Ingredient']}")
+            st.write(p["Category"])
+            st.write(f"Timing: {p['Timing']}")
+            st.write(ai["reasons"].get(pid, "Personalized to your audit"))
+            if isinstance(p["Link"], str) and p["Link"].startswith("http"):
+                st.link_button("View product", p["Link"])
+            st.divider()
 
-    st.subheader("Notes")
-    for n in notes:
-        st.write(f"• {n}")
+    st.subheader("Daily Schedule")
+    for block in ["AM", "PM", "Training"]:
+        st.markdown(f"**{block}**")
+        for pid in ai["schedule"].get(block, []):
+            p = prod_map.get(pid, {})
+            st.write(f"- {p.get('Ingredient', pid)} ({p.get('Brand','')})")
 
     st.subheader("Checkout")
+    st.write("Start your monthly IBEX subscription:")
+
     cA, cB = st.columns(2)
     with cA:
-        if STRIPE_BASIC_LINK:
-            st.link_button("Subscribe — Basic", STRIPE_BASIC_LINK)
-        else:
-            st.info("Set STRIPE_BASIC_LINK in Streamlit secrets to enable checkout.")
+        st.link_button("Subscribe — Basic", st.secrets.get("STRIPE_BASIC_LINK", "#"))
     with cB:
-        if STRIPE_PERF_LINK:
-            st.link_button("Subscribe — Performance", STRIPE_PERF_LINK)
-        else:
-            st.info("Set STRIPE_PERF_LINK in Streamlit secrets to enable checkout.")
+        st.link_button("Subscribe — Performance", st.secrets.get("STRIPE_PERF_LINK", "#"))
 
-    st.caption(f"Internal reference id: {rid}")
+    st.caption(f"Reference ID: {rid}")
