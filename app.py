@@ -2,35 +2,21 @@ import os
 import json
 import uuid
 import base64
-from datetime import date, datetime
+from datetime import date
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
-# Optional: logo support
 try:
     from PIL import Image
 except Exception:
     Image = None
 
-# OpenAI
 try:
     from openai import OpenAI
 except Exception:
     OpenAI = None
-
-# Stripe (optional)
-try:
-    import stripe
-except Exception:
-    stripe = None
-
-# Supabase (optional)
-try:
-    from supabase import create_client
-except Exception:
-    create_client = None
-
 
 # =========================================================
 # CONFIG / PATHS
@@ -44,18 +30,20 @@ EXCLUSIONS_CSV = "data/exclusions.csv"
 # Put a HIGH-RES square logo here (512x512 or 1024x1024)
 LOGO_PATH = "assets/ibex_logo.png"
 
-# =========================================================
-# PAGE CONFIG
-# =========================================================
+# ---------------------------------------------------------
+# PAGE CONFIG (favicon / engine tab icon)
+# ---------------------------------------------------------
 st.set_page_config(
     page_title=f"{APP_TITLE} • Performance Audit",
-    page_icon=LOGO_PATH,  # favicon/browser tab (works if file exists)
+    page_icon=LOGO_PATH,  # shows in browser tab
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 # =========================================================
-# PREMIUM STYLING (includes FIXES for sidebar dropdown text)
+# PREMIUM STYLING (fix contrast + make it look expensive)
+# + FIX: sidebar input/dropdown text colors (BaseWeb)
+# + FIX: button text colors everywhere
 # =========================================================
 st.markdown(
     """
@@ -81,9 +69,7 @@ footer {visibility:hidden;}
 header {visibility:hidden;}
 
 .stApp{ background: var(--bg); }
-html, body, [class*="css"]{
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-}
+html, body, [class*="css"]{ font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
 
 /* Main text */
 h1,h2,h3,h4,h5{ color:var(--text) !important; letter-spacing:-0.2px; }
@@ -99,7 +85,9 @@ section[data-testid="stSidebar"] *{
 }
 section[data-testid="stSidebar"] a{ color:#93c5fd !important; }
 
-/* Inputs (main area) */
+/* ---------------------------------------------------------
+   GLOBAL INPUTS (main area)
+--------------------------------------------------------- */
 input, textarea, select {
   background:#fff !important;
   color:var(--text) !important;
@@ -110,7 +98,7 @@ input, textarea, select {
 /* Tabs */
 button[data-baseweb="tab"]{
   color: var(--sub) !important;
-  font-weight: 700;
+  font-weight: 600;
   border-radius: 12px 12px 0 0 !important;
 }
 button[data-baseweb="tab"][aria-selected="true"]{
@@ -122,7 +110,7 @@ button[data-baseweb="tab"][aria-selected="true"]{
 .ibx-card{
   background: var(--card);
   border:1px solid rgba(15, 23, 42, 0.08);
-  border-radius: 22px;
+  border-radius: 20px;
   padding: 28px;
   box-shadow: 0 18px 45px rgba(2, 6, 23, 0.08);
   margin-bottom: 18px;
@@ -148,7 +136,7 @@ button[data-baseweb="tab"][aria-selected="true"]{
 .stButton button, .stLinkButton a{
   border-radius: 14px !important;
   padding: 0.78rem 1.05rem !important;
-  font-weight: 850 !important;
+  font-weight: 800 !important;
   color:#ffffff !important;
 }
 .stButton button{
@@ -156,6 +144,8 @@ button[data-baseweb="tab"][aria-selected="true"]{
   border: none !important;
 }
 .stButton button:hover{ opacity: 0.92; }
+
+/* Link buttons (Stripe) */
 .stLinkButton a{
   background: var(--accent2) !important;
   border: 1px solid rgba(17,24,39,0.15) !important;
@@ -167,8 +157,10 @@ button[data-baseweb="tab"][aria-selected="true"]{
 .block-container{ padding-top: 1.0rem; }
 
 /* ---------------------------------------------------------
-   SIDEBAR INPUT + DROPDOWN TEXT COLOR FIXES
+   FIX: SIDEBAR INPUT “BLOCKS” + DROPDOWN TEXT COLOR
 --------------------------------------------------------- */
+
+/* Sidebar input containers keep their own text colors */
 section[data-testid="stSidebar"] .stTextInput input,
 section[data-testid="stSidebar"] .stTextArea textarea,
 section[data-testid="stSidebar"] .stNumberInput input{
@@ -178,6 +170,7 @@ section[data-testid="stSidebar"] .stNumberInput input{
   border-radius: 14px !important;
 }
 
+/* Placeholders (sidebar) */
 section[data-testid="stSidebar"] .stTextInput input::placeholder,
 section[data-testid="stSidebar"] .stTextArea textarea::placeholder,
 section[data-testid="stSidebar"] .stNumberInput input::placeholder{
@@ -185,33 +178,53 @@ section[data-testid="stSidebar"] .stNumberInput input::placeholder{
   opacity: 1 !important;
 }
 
-/* BaseWeb select boxes */
+/* Selectbox / Multiselect / Dropdown (BaseWeb Select) */
 section[data-testid="stSidebar"] [data-baseweb="select"] > div{
   background:#ffffff !important;
   border:1px solid rgba(229,231,235,0.35) !important;
   border-radius: 14px !important;
 }
-/* Selected value */
+
+/* Selected value + input text inside select */
 section[data-testid="stSidebar"] [data-baseweb="select"] *{
   color: var(--text) !important;
 }
-/* caret */
+
+/* Caret icon */
 section[data-testid="stSidebar"] [data-baseweb="select"] svg{
   color: var(--text) !important;
 }
 
-/* Dropdown menu (portal) */
+/* Dropdown menu panel + options (portal) */
+div[data-baseweb="popover"] *{
+  color: var(--text) !important;
+}
 div[data-baseweb="menu"]{
   background:#ffffff !important;
   border:1px solid rgba(15,23,42,0.10) !important;
   border-radius: 14px !important;
   overflow:hidden !important;
 }
-div[data-baseweb="menu"] *{
-  color: var(--text) !important;
+div[data-baseweb="menu"] [role="option"]{
+  background:#ffffff !important;
 }
 div[data-baseweb="menu"] [role="option"]:hover{
   background: rgba(15,23,42,0.06) !important;
+}
+
+/* Slider in sidebar: value labels readable */
+section[data-testid="stSidebar"] .stSlider *{
+  color: var(--sideText) !important;
+}
+section[data-testid="stSidebar"] [data-testid="stTickBarMin"],
+section[data-testid="stSidebar"] [data-testid="stTickBarMax"]{
+  color: var(--sideText) !important;
+}
+
+/* Radio + checkbox text stays light in sidebar */
+section[data-testid="stSidebar"] .stRadio label,
+section[data-testid="stSidebar"] .stCheckbox label{
+  color: var(--sideText) !important;
 }
 </style>
 """,
@@ -228,44 +241,152 @@ def require_file(path: str, friendly: str):
         st.stop()
 
 def load_logo():
-    if not os.path.exists(LOGO_PATH) or Image is None:
+    if not os.path.exists(LOGO_PATH):
+        return None
+    if Image is None:
         return None
     try:
         return Image.open(LOGO_PATH)
     except Exception:
         return None
 
-def new_rid() -> str:
-    return str(uuid.uuid4())
-
-def get_query_params() -> dict:
-    # Works across Streamlit versions
-    try:
-        return dict(st.query_params)
-    except Exception:
-        return st.experimental_get_query_params()
-
-def set_query_params(**kwargs):
-    try:
-        st.query_params.clear()
-        for k, v in kwargs.items():
-            st.query_params[k] = v
-    except Exception:
-        st.experimental_set_query_params(**kwargs)
-
 def get_openai_client():
     api_key = st.secrets.get("OPENAI_API_KEY")
     if not api_key:
         st.error("Missing OPENAI_API_KEY in Streamlit Secrets.")
+        st.info("Streamlit → Manage app → Settings → Secrets → add OPENAI_API_KEY.")
         st.stop()
     if OpenAI is None:
-        st.error("openai package not installed. Add `openai` to requirements.txt.")
+        st.error("openai package not installed. Ensure requirements.txt includes `openai`.")
         st.stop()
     return OpenAI(api_key=api_key)
 
 def is_yes(val) -> bool:
-    return str(val).strip().lower() in {"y", "yes", "true", "1"}
+    return str(val).strip().lower() in {"y","yes","true","1"}
 
+# =========================================================
+# NEW: PREMIUM AUDIT ID CARD (THIS REPLACES THE BLACK BARS)
+# =========================================================
+def display_audit_id(rid: str):
+    """
+    Premium, clean, copyable Audit ID card.
+    (Only aesthetic change vs your prior build.)
+    """
+    if not rid:
+        return
+
+    # shorter "display id" for humans (keeps full rid in backend)
+    display_id = "IBEX-" + rid.replace("-", "")[:10].upper()
+
+    html = f"""
+    <div style="
+        background:#ffffff;
+        border:1px solid rgba(15,23,42,0.10);
+        border-radius:20px;
+        padding:22px 22px 18px 22px;
+        box-shadow: 0 18px 45px rgba(2, 6, 23, 0.08);
+        margin: 4px 0 18px 0;
+    ">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:14px; flex-wrap:wrap;">
+        <div>
+          <div style="font-size:13px; letter-spacing:0.12em; font-weight:800; color:#64748b;">
+            IBEX AUDIT ID
+          </div>
+          <div style="margin-top:6px; font-size:22px; font-weight:900; color:#0f172a; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">
+            {display_id}
+          </div>
+          <div style="margin-top:10px; font-size:13px; color:#64748b;">
+            Copy this and paste it into Stripe during checkout so we can match your order to your recommendations.
+          </div>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:10px; min-width:240px;">
+          <button id="ibexCopyBtn" style="
+              background:#ef4444; color:#ffffff; border:none;
+              border-radius:14px; padding:12px 14px;
+              font-weight:900; cursor:pointer;
+              box-shadow: 0 10px 25px rgba(239,68,68,0.20);
+          ">
+            Copy Audit ID
+          </button>
+
+          <div id="ibexCopyNote" style="font-size:12px; color:#64748b; text-align:center; min-height:16px;"></div>
+        </div>
+      </div>
+
+      <div style="margin-top:14px; padding:10px 12px; border-radius:14px; background:rgba(15,23,42,0.03); border:1px solid rgba(15,23,42,0.06);">
+        <div style="font-size:11px; color:#64748b; font-weight:800; letter-spacing:0.10em;">FULL ID (internal)</div>
+        <div style="margin-top:6px; font-size:12px; color:#0f172a; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; word-break:break-all;">
+          {rid}
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const txt = "{display_id}";
+      const btn = document.getElementById("ibexCopyBtn");
+      const note = document.getElementById("ibexCopyNote");
+
+      btn.addEventListener("click", async () => {{
+        try {{
+          await navigator.clipboard.writeText(txt);
+          note.textContent = "Copied ✓";
+          note.style.color = "#16a34a";
+          setTimeout(() => {{
+            note.textContent = "";
+            note.style.color = "#64748b";
+          }}, 1400);
+        }} catch (e) {{
+          note.textContent = "Copy failed — select & copy manually";
+          note.style.color = "#b45309";
+        }}
+      }});
+    </script>
+    """
+    components.html(html, height=210)
+
+# =========================================================
+# HEADER
+# =========================================================
+def render_header():
+    logo = load_logo()
+    if logo is not None:
+        c1, c2 = st.columns([1, 7], gap="large")
+        with c1:
+            st.image(logo, width=130)
+        with c2:
+            st.markdown(
+                f"<div style='font-size:44px; font-weight:850; color:#0f172a; margin-top:2px;'>{APP_TITLE}</div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<div class='ibx-muted' style='font-size:16px; margin-top:-6px;'>{APP_TAGLINE}</div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                """
+                <div style="margin-top:10px;">
+                  <span class="ibx-badge">Plan-aware AI</span>
+                  <span class="ibx-badge">Privacy-first</span>
+                  <span class="ibx-badge">Athlete-safe guardrails</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+    else:
+        st.markdown(
+            f"""
+            <div class="ibx-card">
+              <div style="font-size:44px; font-weight:850; color:#0f172a;">{APP_TITLE}</div>
+              <div class="ibx-muted" style="font-size:16px;">{APP_TAGLINE}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+# =========================================================
+# DATA LOADERS
+# =========================================================
 @st.cache_data(show_spinner=False)
 def load_products():
     df = pd.read_csv(PRODUCTS_CSV)
@@ -288,86 +409,29 @@ def load_exclusions():
         raise ValueError("exclusions.csv must have columns: Excluded_Category_or_Ingredient, Reason")
     return df
 
-def supabase_client():
-    url = st.secrets.get("SUPABASE_URL", "")
-    key = st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")
-    if not url or not key:
-        return None
-    if create_client is None:
-        return None
-    try:
-        return create_client(url, key)
-    except Exception:
-        return None
-
-def stripe_enabled():
-    return stripe is not None and bool(st.secrets.get("STRIPE_SECRET_KEY", ""))
-
-def stripe_init():
-    stripe.api_key = st.secrets.get("STRIPE_SECRET_KEY")
-
-def stripe_retrieve_checkout_session(session_id: str):
-    """
-    Stripe expansion gotcha:
-    - shipping_details is NOT expandable (it is returned inline)
-    - line_items requires list_line_items OR retrieve with expand=['line_items']
-    """
-    stripe_init()
-    # Retrieve session (shipping_details will already be present if collected)
-    sess = stripe.checkout.Session.retrieve(
-        session_id,
-        expand=["customer", "subscription"]  # keep simple; line_items via separate call for reliability
-    )
-    line_items = stripe.checkout.Session.list_line_items(session_id, limit=20)
-    return sess, line_items
-
-def extract_audit_id_from_session(sess: dict) -> str | None:
-    """
-    Payment Links can collect a custom field for 'IBEX Audit ID'.
-    Stripe returns that in sess['custom_fields'] (array).
-    We'll scan for anything that looks like a UUID.
-    """
-    try:
-        cfs = sess.get("custom_fields") or []
-        for f in cfs:
-            val = None
-            if "text" in f and isinstance(f["text"], dict):
-                val = f["text"].get("value")
-            if isinstance(val, str) and len(val) >= 32 and "-" in val:
-                return val.strip()
-    except Exception:
-        pass
-    return None
-
-def safe_json(obj):
-    try:
-        return json.loads(json.dumps(obj, default=str))
-    except Exception:
-        return {}
-
 # =========================================================
-# PLAN COPY
+# PLAN DEFINITIONS
 # =========================================================
 PLAN_COPY = {
     "Basic": {
         "headline": "Foundations, done right.",
-        "sub": "A clean, conservative essentials stack built for consistency and safety.",
+        "sub": "A clean, conservative system built from the essentials. Minimal complexity. Maximum consistency.",
         "bullets": [
-            "Core performance stack (the boring stuff that actually works)",
-            "Strong preference for third-party tested / certified options",
-            "Simple, repeatable schedule built around training",
+            "Core performance stack only (the “boring” stuff that actually works)",
+            "Prefers NSF Certified for Sport / third-party tested when available",
+            "Designed for consistency, budgeting, and simplicity",
         ],
-        "note": "Best for: most athletes who want a safe baseline.",
+        "note": "Best for: most college athletes who want a safe, no-BS baseline.",
     },
     "Performance": {
         "headline": "Optimization mode.",
-        "sub": "A deeper system with conditional additions based on your training load and audit signals.",
+        "sub": "A deeper system with expanded options and conditional additions based on your audit.",
         "bullets": [
-            "Expanded catalog (sleep, recovery, gut, joints when clearly needed)",
-            "More precise timing (training vs off days)",
+            "Expanded catalog (advanced recovery, sleep, gut, joint support as needed)",
+            "More conditional logic: your schedule + training load + sensitivities",
             "Built for athletes chasing marginal gains (without sketchy stuff)",
         ],
-        "note": "Best for: high-volume training, high stress, or athletes who want every edge.",
+        "note": "Best for: high volume training, in-season stress, or athletes who want every edge.",
     },
 }
 
@@ -464,7 +528,7 @@ def run_ai(intake: dict, products_shortlist: pd.DataFrame, exclusions: pd.DataFr
         temperature=0.2
     )
 
-    content = (resp.choices[0].message.content or "").strip()
+    content = resp.choices[0].message.content.strip()
     try:
         return json.loads(content)
     except Exception:
@@ -474,42 +538,6 @@ def run_ai(intake: dict, products_shortlist: pd.DataFrame, exclusions: pd.DataFr
             return json.loads(content[start:end+1])
         raise
 
-def render_header():
-    logo = load_logo()
-    if logo is not None:
-        c1, c2 = st.columns([1, 7], gap="large")
-        with c1:
-            st.image(logo, width=140)
-        with c2:
-            st.markdown(
-                f"<div style='font-size:46px; font-weight:900; color:#0f172a; margin-top:2px;'>{APP_TITLE}</div>",
-                unsafe_allow_html=True,
-            )
-            st.markdown(
-                f"<div class='ibx-muted' style='font-size:16px; margin-top:-6px;'>{APP_TAGLINE}</div>",
-                unsafe_allow_html=True,
-            )
-            st.markdown(
-                """
-                <div style="margin-top:10px;">
-                  <span class="ibx-badge">Plan-aware AI</span>
-                  <span class="ibx-badge">Privacy-first</span>
-                  <span class="ibx-badge">Athlete-safe guardrails</span>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-    else:
-        st.markdown(
-            f"""
-            <div class="ibx-card">
-              <div style="font-size:46px; font-weight:900; color:#0f172a;">{APP_TITLE}</div>
-              <div class="ibx-muted" style="font-size:16px;">{APP_TAGLINE}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
 def render_products(product_ids: list[str], products_df: pd.DataFrame, reasons: dict):
     prod_map = products_df.set_index("Product_ID").to_dict(orient="index")
     cols = st.columns(3, gap="large")
@@ -517,6 +545,7 @@ def render_products(product_ids: list[str], products_df: pd.DataFrame, reasons: 
         p = prod_map.get(pid)
         if not p:
             continue
+
         with cols[i % 3]:
             st.markdown("<div class='ibx-card'>", unsafe_allow_html=True)
             st.markdown(
@@ -525,14 +554,14 @@ def render_products(product_ids: list[str], products_df: pd.DataFrame, reasons: 
                   <span class="ibx-badge">{p['Category']}</span>
                   <span class="ibx-badge">{p['Timing']}</span>
                 </div>
-                <div style="margin-top:12px; font-size:18px; font-weight:900; color:#0f172a;">
+                <div style="margin-top:12px; font-size:18px; font-weight:800; color:#0f172a;">
                   {p['Ingredient']}
                 </div>
                 <div class="ibx-muted" style="margin-top:2px;">
                   {p['Brand']} • {p['Serving_Form']} • {p['Store']}
                 </div>
                 <div class="ibx-divider"></div>
-                <div style="font-weight:900; color:#0f172a;">Why this</div>
+                <div style="font-weight:800; color:#0f172a;">Why this</div>
                 <div class="ibx-muted" style="margin-top:4px;">
                   {reasons.get(pid, "Personalized to your audit")}
                 </div>
@@ -543,14 +572,16 @@ def render_products(product_ids: list[str], products_df: pd.DataFrame, reasons: 
 
 def render_schedule(schedule: dict, products_df: pd.DataFrame):
     prod_map = products_df.set_index("Product_ID").to_dict(orient="index")
-    blocks = [("AM","Morning"), ("Training","Training"), ("PM","Evening")]
+    blocks = [("AM","Morning"), ("PM","Evening"), ("Training","Training")]
     cols = st.columns(3, gap="large")
+
     for i, (key, title) in enumerate(blocks):
         with cols[i]:
             st.markdown("<div class='ibx-card'>", unsafe_allow_html=True)
-            st.markdown(f"<div style='font-size:18px; font-weight:950; color:#0f172a;'>{title}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='font-size:18px; font-weight:900; color:#0f172a;'>{title}</div>", unsafe_allow_html=True)
             st.markdown("<div class='ibx-muted' style='margin-top:-2px;'>Recommended timing</div>", unsafe_allow_html=True)
             st.markdown("<div class='ibx-divider'></div>", unsafe_allow_html=True)
+
             items = schedule.get(key, []) if isinstance(schedule, dict) else []
             if not items:
                 st.markdown("<div class='ibx-muted'>—</div>", unsafe_allow_html=True)
@@ -565,7 +596,7 @@ def render_privacy_policy():
     st.markdown(
         f"""
 <div class="ibx-card">
-  <div style="font-size:26px; font-weight:950; color:#0f172a;">Privacy Policy</div>
+  <div style="font-size:26px; font-weight:900; color:#0f172a;">Privacy Policy</div>
   <div class="ibx-muted" style="margin-top:4px;">Effective: {eff}</div>
   <div class="ibx-divider"></div>
 
@@ -612,7 +643,7 @@ def render_faq():
     st.markdown(
         """
 <div class="ibx-card">
-  <div style="font-size:26px; font-weight:950; color:#0f172a;">FAQ</div>
+  <div style="font-size:26px; font-weight:900; color:#0f172a;">FAQ</div>
   <div class="ibx-divider"></div>
 
   <h3>Is this medical advice?</h3>
@@ -629,53 +660,7 @@ def render_faq():
     )
 
 # =========================================================
-# SUPABASE SAVE (AUDIT + ORDER)
-# =========================================================
-def supabase_save_audit(intake: dict, ai_out: dict):
-    sb = supabase_client()
-    if not sb:
-        return
-
-    row = {
-        "rid": intake.get("rid"),
-        "plan": intake.get("plan"),
-        "name": intake.get("name"),
-        "email": intake.get("email"),
-        "school": intake.get("school"),
-        "sport": intake.get("sport"),
-        "position": intake.get("position"),
-        "season_status": intake.get("season_status"),
-        "training_days_per_week": intake.get("training_days_per_week"),
-        "intensity_1_to_10": intake.get("intensity_1_to_10"),
-        "travel_frequency": intake.get("travel_frequency"),
-        "goals": intake.get("goals"),
-        "sleep_hours": intake.get("sleep_hours"),
-        "sleep_quality_1_to_10": intake.get("sleep_quality_1_to_10"),
-        "stress_1_to_10": intake.get("stress_1_to_10"),
-        "soreness_1_to_10": intake.get("soreness_1_to_10"),
-        "gi_sensitive": intake.get("gi_sensitive"),
-        "caffeine_sensitive": intake.get("caffeine_sensitive"),
-        "current_supplements": intake.get("current_supplements"),
-        "avoid_ingredients": intake.get("avoid_ingredients"),
-        "open_notes": intake.get("open_notes"),
-        "ai_out": safe_json(ai_out),
-        "created_at": datetime.utcnow().isoformat()
-    }
-
-    # Upsert by rid (idempotent)
-    sb.table("audits").upsert(row).execute()
-
-def supabase_save_order(order_row: dict):
-    sb = supabase_client()
-    if not sb:
-        return
-
-    # Insert once by stripe_session_id (idempotent-ish)
-    sb.table("orders").upsert(order_row, on_conflict="stripe_session_id").execute()
-
-
-# =========================================================
-# FILE CHECKS + LOAD DATA
+# APP START
 # =========================================================
 require_file(PRODUCTS_CSV, "products.csv (data/products.csv)")
 require_file(EXCLUSIONS_CSV, "exclusions.csv (data/exclusions.csv)")
@@ -687,9 +672,7 @@ exclusions = load_exclusions()
 STRIPE_BASIC_LINK = st.secrets.get("STRIPE_BASIC_LINK", "")
 STRIPE_PERF_LINK = st.secrets.get("STRIPE_PERF_LINK", "")
 
-# =========================================================
-# SESSION STATE
-# =========================================================
+# session state
 if "ai_out" not in st.session_state:
     st.session_state.ai_out = None
 if "last_plan" not in st.session_state:
@@ -697,170 +680,17 @@ if "last_plan" not in st.session_state:
 if "last_rid" not in st.session_state:
     st.session_state.last_rid = None
 
-# Draft RID: always exists, used for the *next* audit submission
-if "draft_rid" not in st.session_state:
-    st.session_state.draft_rid = new_rid()
-
-# Store last intake for optional support / linking
-if "last_intake" not in st.session_state:
-    st.session_state.last_intake = None
-
-# =========================================================
-# TOP HEADER
-# =========================================================
 render_header()
 
-# =========================================================
-# ROUTING: CLEAN THANK YOU PAGE
-# =========================================================
-qp = get_query_params()
-success = str(qp.get("success", ["false"])[0] if isinstance(qp.get("success"), list) else qp.get("success", "false")).lower() == "true"
-session_id = (qp.get("session_id", [""])[0] if isinstance(qp.get("session_id"), list) else qp.get("session_id", "")) or ""
-
-def render_thank_you_page():
-    # Premium confirmation page. No sloppy Stripe debug.
-    st.markdown(
-        """
-        <div class="ibx-card" style="padding:32px; border-radius:26px;">
-          <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;">
-            <div>
-              <div style="font-size:30px; font-weight:950; color:#0f172a;">✅ Payment confirmed</div>
-              <div class="ibx-muted" style="margin-top:6px; font-size:15px;">
-                Thanks — you’re all set. We’ve emailed your receipt.
-              </div>
-            </div>
-            <div>
-              <span class="ibx-badge">Order received</span>
-              <span class="ibx-badge">Secure checkout</span>
-            </div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    # Try to save order to Supabase (silent)
-    # If Stripe isn't configured, we still show clean page.
-    detected_rid = None
-    plan = None
-
-    if session_id and stripe_enabled():
-        try:
-            sess, line_items = stripe_retrieve_checkout_session(session_id)
-
-            # Try to pull audit id from custom fields (Payment Link)
-            detected_rid = extract_audit_id_from_session(sess)
-
-            # Pull basic order data (no UI display)
-            customer_email = sess.get("customer_details", {}).get("email") or sess.get("customer_email")
-            amount_total = sess.get("amount_total")
-            currency = sess.get("currency")
-            status = sess.get("payment_status") or sess.get("status")
-            shipping_details = sess.get("shipping_details")  # inline object if collected
-            payment_intent = sess.get("payment_intent")
-            customer_id = sess.get("customer")
-            subscription_id = sess.get("subscription")
-
-            # Determine plan from line items / price description if possible
-            # (Optional – you can also store plan via custom field in Payment Link)
-            try:
-                li_data = (line_items.get("data") or [])
-                names = []
-                for li in li_data:
-                    desc = li.get("description")
-                    if desc:
-                        names.append(desc.lower())
-                if any("performance" in n for n in names):
-                    plan = "Performance"
-                elif any("basic" in n for n in names):
-                    plan = "Basic"
-            except Exception:
-                pass
-
-            # Save to Supabase if configured
-            sb = supabase_client()
-            if sb:
-                order_row = {
-                    "stripe_session_id": session_id,
-                    "stripe_payment_intent": payment_intent,
-                    "stripe_customer_id": customer_id,
-                    "stripe_subscription_id": subscription_id,
-                    "email": customer_email,
-                    "amount_total": amount_total,
-                    "currency": currency,
-                    "status": status,
-                    "rid": detected_rid,     # may be None if they didn’t enter it
-                    "plan": plan,
-                    "shipping": safe_json(shipping_details),
-                    "line_items": safe_json(line_items),
-                    "created_at": datetime.utcnow().isoformat()
-                }
-                supabase_save_order(order_row)
-
-        except Exception:
-            # We intentionally DO NOT show technical errors on the customer page.
-            pass
-
-    # Show RID if we can (nice + clear)
-    # Priority: detected from Stripe custom field -> last_rid in session state
-    show_rid = detected_rid or st.session_state.get("last_rid")
-    if show_rid:
-        st.markdown(
-            """
-            <div class="ibx-card" style="border-radius:26px;">
-              <div style="font-size:18px; font-weight:950; color:#0f172a;">IBEX Audit ID</div>
-              <div class="ibx-muted" style="margin-top:4px;">Keep this for support and order matching.</div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-        st.code(show_rid, language=None)
-
-    st.markdown(
-        """
-        <div class="ibx-card" style="border-radius:26px;">
-          <div style="font-size:20px; font-weight:950; color:#0f172a;">What happens next</div>
-          <div class="ibx-divider"></div>
-          <ul>
-            <li class="ibx-muted">You’ll receive a Stripe confirmation email.</li>
-            <li class="ibx-muted">If you provided your IBEX Audit ID at checkout, your order is automatically matched to your audit.</li>
-            <li class="ibx-muted">We’ll email tracking when it ships.</li>
-          </ul>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    c1, c2 = st.columns([1, 2], gap="large")
-    with c1:
-        if st.button("Return to IBEX (start / view audit)"):
-            # Clear success params so it doesn't loop
-            set_query_params()
-            st.rerun()
-    with c2:
-        st.markdown("<div class='ibx-muted' style='margin-top:10px;'>Need help? Email support@ibexperformance.com</div>", unsafe_allow_html=True)
-
-
-# If redirected from Stripe, show Thank You page and stop
-if success:
-    render_thank_you_page()
-    st.stop()
-
-# =========================================================
-# MAIN APP TABS
-# =========================================================
 tabs = st.tabs(["Audit", "Privacy", "FAQ"])
-
 
 # =========================================================
 # TAB: AUDIT
 # =========================================================
 with tabs[0]:
-    # RESULTS TOP (no scrolling)
     if st.session_state.ai_out:
         ai_out = st.session_state.ai_out
         plan = st.session_state.last_plan
-        rid = st.session_state.last_rid
 
         st.markdown(
             f"""
@@ -868,7 +698,7 @@ with tabs[0]:
               <div style="display:flex; justify-content:space-between; align-items:flex-end; gap:12px; flex-wrap:wrap;">
                 <div>
                   <div style="font-size:28px; font-weight:950; color:#0f172a;">Your {plan} System</div>
-                  <div class="ibx-muted">Your IBEX Audit ID (copy + paste during checkout)</div>
+                  <div class="ibx-muted">Reference ID: {st.session_state.last_rid}</div>
                 </div>
                 <div>
                   <span class="ibx-badge">Instant audit</span>
@@ -880,13 +710,11 @@ with tabs[0]:
             unsafe_allow_html=True
         )
 
-        # Big obvious RID block
-        st.code(rid, language=None)
-        st.caption("Copy this ID and paste it into Stripe during checkout so we can match your order to your recommendations.")
+        # ✅ ONLY CHANGE: replace the ugly black bars with the premium card
+        display_audit_id(st.session_state.last_rid)
 
         if ai_out.get("consult_professional", False):
             st.warning("Based on what you shared, consult a qualified professional. We kept this conservative.")
-
         flags = ai_out.get("flags", [])
         if flags:
             st.caption("Signals detected: " + ", ".join(flags))
@@ -904,16 +732,26 @@ with tabs[0]:
             for n in notes:
                 st.write(f"• {n}")
             st.markdown("</div>", unsafe_allow_html=True)
+        else:
+            st.info("No additional notes.")
 
         st.subheader("Checkout")
-        st.caption("Choose the plan you selected. Paste your IBEX Audit ID into Stripe during checkout.")
+        st.caption("Copy your IBEX Audit ID above and paste it into Stripe during checkout.")
 
         if plan == "Basic":
+            st.markdown("<div class='ibx-card'>", unsafe_allow_html=True)
+            st.markdown("<div style='font-size:18px; font-weight:950; color:#0f172a;'>IBEX Basic</div>", unsafe_allow_html=True)
+            st.markdown("<div class='ibx-muted'>Foundations, done right.</div>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
             if STRIPE_BASIC_LINK:
                 st.link_button("Subscribe — IBEX Basic", STRIPE_BASIC_LINK)
             else:
                 st.info("Set STRIPE_BASIC_LINK in Streamlit Secrets.")
         else:
+            st.markdown("<div class='ibx-card'>", unsafe_allow_html=True)
+            st.markdown("<div style='font-size:18px; font-weight:950; color:#0f172a;'>IBEX Performance</div>", unsafe_allow_html=True)
+            st.markdown("<div class='ibx-muted'>Expanded catalog + conditional optimization.</div>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
             if STRIPE_PERF_LINK:
                 st.link_button("Subscribe — IBEX Performance", STRIPE_PERF_LINK)
             else:
@@ -922,8 +760,6 @@ with tabs[0]:
         if st.button("Start a new audit"):
             st.session_state.ai_out = None
             st.session_state.last_rid = None
-            st.session_state.last_intake = None
-            st.session_state.draft_rid = new_rid()  # always new
             st.rerun()
 
     else:
@@ -939,7 +775,7 @@ with tabs[0]:
             unsafe_allow_html=True
         )
 
-    # SIDEBAR FORM (FULL QUESTIONS)
+    # SIDEBAR FORM
     with st.sidebar:
         st.markdown("## IBEX Audit")
         st.caption("Plan → Audit → Instant system.")
@@ -1004,9 +840,7 @@ with tabs[0]:
                 st.error("Please check the consent box to proceed.")
                 st.stop()
 
-            # Use the draft RID so it’s stable for checkout
-            rid = st.session_state.draft_rid
-
+            rid = str(uuid.uuid4())  # ALWAYS generate a new rid
             intake = {
                 "rid": rid,
                 "plan": plan,
@@ -1036,22 +870,10 @@ with tabs[0]:
             with st.spinner("Generating your system…"):
                 ai_out = run_ai(intake, shortlist, exclusions, plan)
 
-            # Save audit to Supabase (optional, silent)
-            try:
-                supabase_save_audit(intake, ai_out)
-            except Exception:
-                pass
-
             st.session_state.ai_out = ai_out
             st.session_state.last_plan = plan
             st.session_state.last_rid = rid
-            st.session_state.last_intake = intake
-
-            # IMPORTANT: rotate to a fresh draft RID for next audit
-            st.session_state.draft_rid = new_rid()
-
             st.rerun()
-
 
 # =========================================================
 # TAB: PRIVACY
@@ -1064,8 +886,6 @@ with tabs[1]:
 # =========================================================
 with tabs[2]:
     render_faq()
-
-
 
 
 
