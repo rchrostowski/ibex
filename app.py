@@ -41,6 +41,7 @@ st.set_page_config(
 
 # =========================================================
 # PREMIUM STYLING (fix contrast + make it look expensive)
+# + FIX: sidebar input/dropdown text colors (BaseWeb)
 # =========================================================
 st.markdown(
     """
@@ -54,6 +55,10 @@ st.markdown(
   --border:#e5e7eb;
   --accent:#ef4444;
   --accent2:#111827;
+
+  --side:#0b1220;
+  --sideBorder:#132033;
+  --sideText:#e5e7eb;
 }
 
 /* hide streamlit chrome */
@@ -70,22 +75,23 @@ p,li,span,div,label{ color:var(--sub); }
 
 /* Sidebar */
 section[data-testid="stSidebar"]{
-  background: #0b1220;
-  border-right:1px solid #132033;
+  background: var(--side);
+  border-right:1px solid var(--sideBorder);
 }
 section[data-testid="stSidebar"] *{
-  color:#e5e7eb !important;
+  color: var(--sideText) !important;
 }
 section[data-testid="stSidebar"] a{ color:#93c5fd !important; }
 
-/* Inputs */
+/* ---------------------------------------------------------
+   GLOBAL INPUTS (main area)
+--------------------------------------------------------- */
 input, textarea, select {
   background:#fff !important;
   color:var(--text) !important;
   border:1px solid var(--border) !important;
   border-radius:12px !important;
 }
-.stSlider span{ color:#e5e7eb !important; } /* sidebar slider labels */
 
 /* Tabs */
 button[data-baseweb="tab"]{
@@ -147,6 +153,80 @@ button[data-baseweb="tab"][aria-selected="true"]{
 
 /* Reduce extra whitespace above */
 .block-container{ padding-top: 1.0rem; }
+
+/* ---------------------------------------------------------
+   FIX: SIDEBAR INPUT “BLOCKS” + DROPDOWN TEXT COLOR
+   Streamlit widgets use BaseWeb. Your sidebar rule sets
+   everything to light text, which was leaking into inputs.
+--------------------------------------------------------- */
+
+/* Sidebar input containers keep their own text colors */
+section[data-testid="stSidebar"] .stTextInput input,
+section[data-testid="stSidebar"] .stTextArea textarea,
+section[data-testid="stSidebar"] .stNumberInput input{
+  background:#ffffff !important;
+  color: var(--text) !important;
+  border:1px solid rgba(229,231,235,0.35) !important;
+  border-radius: 14px !important;
+}
+
+/* Placeholders (sidebar) */
+section[data-testid="stSidebar"] .stTextInput input::placeholder,
+section[data-testid="stSidebar"] .stTextArea textarea::placeholder,
+section[data-testid="stSidebar"] .stNumberInput input::placeholder{
+  color: var(--muted) !important;
+  opacity: 1 !important;
+}
+
+/* Selectbox / Multiselect / Dropdown (BaseWeb Select) */
+section[data-testid="stSidebar"] [data-baseweb="select"] > div{
+  background:#ffffff !important;
+  border:1px solid rgba(229,231,235,0.35) !important;
+  border-radius: 14px !important;
+}
+
+/* The selected value text inside the select */
+section[data-testid="stSidebar"] [data-baseweb="select"] *{
+  color: var(--text) !important;
+}
+
+/* Caret icon */
+section[data-testid="stSidebar"] [data-baseweb="select"] svg{
+  color: var(--text) !important;
+}
+
+/* Dropdown menu panel + options */
+div[data-baseweb="popover"] *{
+  color: var(--text) !important;
+}
+div[data-baseweb="menu"]{
+  background:#ffffff !important;
+  border:1px solid rgba(15,23,42,0.10) !important;
+  border-radius: 14px !important;
+  overflow:hidden !important;
+}
+div[data-baseweb="menu"] [role="option"]{
+  background:#ffffff !important;
+}
+div[data-baseweb="menu"] [role="option"]:hover{
+  background: rgba(15,23,42,0.06) !important;
+}
+
+/* Slider in sidebar: value labels readable */
+section[data-testid="stSidebar"] .stSlider *{
+  color: var(--sideText) !important;
+}
+/* Slider min/max numeric labels often live outside .stSlider */
+section[data-testid="stSidebar"] [data-testid="stTickBarMin"],
+section[data-testid="stSidebar"] [data-testid="stTickBarMax"]{
+  color: var(--sideText) !important;
+}
+
+/* Radio + checkbox text stays light in sidebar */
+section[data-testid="stSidebar"] .stRadio label,
+section[data-testid="stSidebar"] .stCheckbox label{
+  color: var(--sideText) !important;
+}
 </style>
 """,
     unsafe_allow_html=True,
@@ -183,8 +263,14 @@ def render_header():
         with c1:
             st.image(logo, width=130)  # bigger & crisp
         with c2:
-            st.markdown(f"<div style='font-size:44px; font-weight:850; color:#0f172a; margin-top:2px;'>{APP_TITLE}</div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='ibx-muted' style='font-size:16px; margin-top:-6px;'>{APP_TAGLINE}</div>", unsafe_allow_html=True)
+            st.markdown(
+                f"<div style='font-size:44px; font-weight:850; color:#0f172a; margin-top:2px;'>{APP_TITLE}</div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<div class='ibx-muted' style='font-size:16px; margin-top:-6px;'>{APP_TAGLINE}</div>",
+                unsafe_allow_html=True,
+            )
             st.markdown(
                 """
                 <div style="margin-top:10px;">
