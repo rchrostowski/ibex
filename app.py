@@ -593,6 +593,8 @@ def render_schedule(schedule: dict, products_df: pd.DataFrame):
 
 def render_privacy_policy():
     eff = date.today().strftime("%B %d, %Y")
+    support_email = st.secrets.get("SUPPORT_EMAIL", "support@ibexsupplements.com")
+
     st.markdown(
         f"""
 <div class="ibx-card">
@@ -600,60 +602,207 @@ def render_privacy_policy():
   <div class="ibx-muted" style="margin-top:4px;">Effective: {eff}</div>
   <div class="ibx-divider"></div>
 
-  <p><strong>IBEX</strong> (“IBEX,” “we,” “us”) provides an athlete-focused performance audit and personalized supplement organization experience.
-  This Privacy Policy explains what we collect, how we use it, and your choices.</p>
+  <p>
+    This Privacy Policy explains how <strong>IBEX</strong> (“IBEX,” “we,” “us,” “our”) collects, uses, shares, and protects
+    information when you use our website and performance audit (the “Service”).
+  </p>
 
-  <h3>What we collect</h3>
+  <h3>1) What IBEX is (and is not)</h3>
   <ul>
-    <li><strong>Audit inputs</strong> you choose to provide (training, sleep, stress, preferences).</li>
-    <li><strong>Contact info</strong> (email, name if provided).</li>
-    <li><strong>Checkout info</strong> (shipping + payment) processed by <strong>Stripe</strong>. We do not store your full card number.</li>
+    <li><strong>IBEX is an informational and organizational tool</strong> that generates a personalized supplement system and timing schedule based on your inputs.</li>
+    <li><strong>IBEX is not a medical provider</strong> and does not provide medical advice, diagnosis, or treatment.</li>
+    <li>You should consult a qualified professional before making health decisions, especially if you have a medical condition, take medications, are pregnant, or are under 18.</li>
   </ul>
 
-  <h3>How we use it</h3>
+  <h3>2) Information we collect</h3>
+  <p>We collect information in three main ways: (a) you provide it, (b) it’s generated during your use of the Service, and (c) it’s provided by third-party processors you choose to use (like Stripe).</p>
+
+  <h4>A. Information you provide</h4>
   <ul>
-    <li>Generate your personalized system and schedule.</li>
-    <li>Operate subscriptions and fulfill shipments (if you purchase).</li>
-    <li>Provide support and improve the product (prefer aggregated insights when possible).</li>
+    <li><strong>Audit Inputs:</strong> training volume, goals, recovery, sleep, stress, sensitivities, preferences, and optional open-ended notes.</li>
+    <li><strong>Contact Information:</strong> name, email (if provided).</li>
+    <li><strong>Audit ID:</strong> a unique identifier generated for each audit to match your recommendations to your order.</li>
   </ul>
 
-  <h3>What we do NOT do</h3>
+  <h4>B. Information collected automatically</h4>
   <ul>
-    <li>We do <strong>not</strong> sell your personal data.</li>
-    <li>We do <strong>not</strong> share your data with third parties for their marketing.</li>
+    <li><strong>Basic usage/technical data:</strong> device/browser information, timestamps, and general usage events that are typically collected by hosting and analytics providers. We use this for reliability and security.</li>
   </ul>
 
-  <h3>AI processing</h3>
-  <p>Your audit inputs are sent to an AI model to generate recommendations. IBEX is not a medical service and does not provide medical advice.</p>
+  <h4>C. Payment & shipping information (Stripe)</h4>
+  <ul>
+    <li>When you check out, <strong>Stripe</strong> collects and processes payment details and, if enabled in your checkout, your shipping address and other checkout fields.</li>
+    <li><strong>IBEX does not receive or store your full card number.</strong> Stripe sends us confirmation and order/session details needed to support your subscription and fulfillment.</li>
+  </ul>
 
-  <h3>Retention & deletion</h3>
-  <p>We retain data only as long as needed to provide the service and meet legal obligations. You can request deletion at any time.</p>
+  <h3>3) How we use information</h3>
+  <ul>
+    <li><strong>To generate your recommendations</strong> and schedule.</li>
+    <li><strong>To operate the Service</strong> (account support, troubleshooting, communications you request).</li>
+    <li><strong>To match orders to recommendations</strong> using your Audit ID and purchase confirmation.</li>
+    <li><strong>To improve the product</strong> (e.g., fix bugs, improve copy and UX). We prefer aggregated insights when possible.</li>
+    <li><strong>To protect the Service</strong> (fraud prevention, abuse monitoring, security).</li>
+  </ul>
 
-  <h3>Contact</h3>
-  <p>Email: <strong>support@ibexperformance.com</strong> (replace with your real support email)</p>
+  <h3>4) AI processing</h3>
+  <ul>
+    <li>Your audit inputs are sent to an AI model to produce a structured recommendation output.</li>
+    <li><strong>We instruct the model not to provide medical advice</strong> and to avoid diagnosis/treatment claims.</li>
+    <li>You should not submit highly sensitive personal information you do not want processed by an AI system.</li>
+  </ul>
+
+  <h3>5) Where your data is stored</h3>
+  <p>
+    IBEX stores audit records and order-matching information in a database provider (currently <strong>Supabase</strong> for storage and data management).
+    Access is restricted to support operations such as producing your results and matching orders for fulfillment.
+  </p>
+
+  <h3>6) How we share information</h3>
+  <p>We share information only as needed to run the Service:</p>
+  <ul>
+    <li><strong>Stripe</strong> — to process payments and (if enabled) collect shipping information.</li>
+    <li><strong>AI provider</strong> — to generate recommendation outputs from your audit inputs.</li>
+    <li><strong>Infrastructure providers</strong> — hosting/runtime services used to deliver the app (e.g., Streamlit hosting).</li>
+    <li><strong>Legal and safety</strong> — if required to comply with law, enforce our terms, or protect rights/safety.</li>
+  </ul>
+  <p><strong>We do not sell your personal information</strong> and we do not share it with third parties for their marketing.</p>
+
+  <h3>7) Data retention</h3>
+  <ul>
+    <li>We retain audit and operational records only as long as necessary to provide the Service, resolve issues, comply with legal obligations, and enforce agreements.</li>
+    <li>If you request deletion, we will delete or de-identify data unless we must keep certain records (e.g., billing/financial records) for legal compliance.</li>
+  </ul>
+
+  <h3>8) Your choices and rights</h3>
+  <ul>
+    <li>You may request access, correction, or deletion of your data by emailing <strong>{support_email}</strong>.</li>
+    <li>You may unsubscribe from non-essential messages (if any) using the instructions provided in those messages.</li>
+  </ul>
+
+  <h3>9) Security</h3>
+  <p>
+    We use reasonable administrative, technical, and organizational safeguards to protect information.
+    However, no method of transmission or storage is 100% secure, and we cannot guarantee absolute security.
+  </p>
+
+  <h3>10) International transfers</h3>
+  <p>
+    Depending on where you live and where our providers operate, your information may be processed in countries different from your own.
+    We rely on service providers’ contractual and security measures to protect your data.
+  </p>
+
+  <h3>11) Children</h3>
+  <p>
+    IBEX is not intended for children under 13. If you are under 18, use IBEX only with parental/guardian guidance and consult a qualified professional before making health decisions.
+  </p>
+
+  <h3>12) Changes to this policy</h3>
+  <p>
+    We may update this Privacy Policy from time to time. We will post the updated version in the app and update the effective date above.
+  </p>
+
+  <h3>13) Contact</h3>
+  <p>
+    Questions or requests: <strong>{support_email}</strong>
+  </p>
 
   <div class="ibx-divider"></div>
-  <div class="ibx-muted" style="font-size:12px;">Template for MVP use, not legal advice.</div>
+  <div class="ibx-muted" style="font-size:12px;">
+    This policy is provided for transparency and product clarity; it is not legal advice.
+  </div>
 </div>
 """,
         unsafe_allow_html=True
     )
 
+
 def render_faq():
+    support_email = st.secrets.get("SUPPORT_EMAIL", "support@ibexsupplements.com")
+
     st.markdown(
-        """
+        f"""
 <div class="ibx-card">
   <div style="font-size:26px; font-weight:900; color:#0f172a;">FAQ</div>
   <div class="ibx-divider"></div>
 
-  <h3>Is this medical advice?</h3>
-  <p class="ibx-muted">No. IBEX is informational/organizational. Consult a qualified professional for medical concerns.</p>
+  <h3>What is IBEX?</h3>
+  <p class="ibx-muted">
+    IBEX is a performance audit and personalization engine. You answer questions about your training and recovery,
+    and IBEX generates a personalized supplement system, timing schedule, and rationale — designed for athletes who want structure.
+  </p>
+
+  <h3>Is IBEX medical advice?</h3>
+  <p class="ibx-muted">
+    No. IBEX does not provide medical advice, diagnosis, or treatment.
+    If you have a medical condition, take medications, have symptoms, are pregnant, or are under 18,
+    consult a qualified professional before making health decisions.
+  </p>
+
+  <h3>How does IBEX generate recommendations?</h3>
+  <p class="ibx-muted">
+    IBEX uses your audit inputs plus a curated product universe and exclusion rules.
+    An AI model generates a structured output (what to include, what to avoid, schedule, and reasoning).
+    We instruct the AI to avoid medical claims and to stay conservative when risk factors appear.
+  </p>
 
   <h3>What’s the difference between Basic and Performance?</h3>
-  <p class="ibx-muted"><strong>Basic</strong> is a conservative, essentials-only system. <strong>Performance</strong> unlocks a broader catalog and conditional optimization.</p>
+  <p class="ibx-muted">
+    <strong>Basic</strong> is a conservative essentials-first system that focuses on foundational categories.
+    <strong>Performance</strong> allows a broader catalog and more conditional additions based on your audit.
+    Both plans exclude high-risk categories and aim to reduce guesswork.
+  </p>
+
+  <h3>Do you manufacture or create supplements?</h3>
+  <p class="ibx-muted">
+    No. IBEX does not manufacture supplements and does not create proprietary formulas.
+    IBEX organizes and recommends commercially available products from the IBEX catalog.
+  </p>
+
+  <h3>What is the IBEX Audit ID and why do I need it?</h3>
+  <p class="ibx-muted">
+    The Audit ID links your recommendations to your purchase so we can match your order to your generated system.
+    You’ll be prompted to copy and paste it into checkout.
+  </p>
+
+  <h3>How does payment and shipping work?</h3>
+  <p class="ibx-muted">
+    Payments are processed by <strong>Stripe</strong>. Stripe may collect shipping details depending on your checkout settings.
+    IBEX does not store full card numbers. Stripe provides confirmation data used to support subscription and fulfillment.
+  </p>
+
+  <h3>Will IBEX work for NCAA compliance or “banned substances” risk?</h3>
+  <p class="ibx-muted">
+    IBEX is designed to be conservative and includes exclusion rules, but we do not guarantee eligibility or compliance.
+    Athletes are responsible for reviewing products with their coaches/trainers and following applicable policies.
+    If you’re subject to NCAA or team rules, always verify supplement use with your program.
+  </p>
+
+  <h3>What if I’m caffeine sensitive or have stomach issues?</h3>
+  <p class="ibx-muted">
+    You can indicate sensitivities in the audit. IBEX attempts to avoid products labeled as problematic for those sensitivities,
+    but you should still use judgment and consult a professional if you have medical concerns.
+  </p>
 
   <h3>Do you sell my data?</h3>
-  <p class="ibx-muted">No.</p>
+  <p class="ibx-muted">
+    No. IBEX does not sell your personal data and does not share it with third parties for their marketing.
+  </p>
+
+  <h3>Can I delete my data?</h3>
+  <p class="ibx-muted">
+    Yes — you can request deletion by emailing <strong>{support_email}</strong>. We’ll delete or de-identify information unless we must retain certain records for legal or billing reasons.
+  </p>
+
+  <h3>I didn’t get results or something looks wrong — what do I do?</h3>
+  <p class="ibx-muted">
+    If your results fail to generate or your order doesn’t match correctly, contact <strong>{support_email}</strong> and include your IBEX Audit ID.
+  </p>
+
+  <h3>Refunds / cancellations</h3>
+  <p class="ibx-muted">
+    Subscriptions are managed through Stripe. Cancellation and refund handling depend on your Stripe configuration and policy.
+    If you need help, contact <strong>{support_email}</strong>.
+  </p>
 </div>
 """,
         unsafe_allow_html=True
