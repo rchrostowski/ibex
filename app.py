@@ -42,6 +42,7 @@ st.set_page_config(
 # =========================================================
 # PREMIUM STYLING (fix contrast + make it look expensive)
 # + FIX: sidebar input/dropdown text colors (BaseWeb)
+# + FIX: button text colors everywhere
 # =========================================================
 st.markdown(
     """
@@ -134,11 +135,11 @@ button[data-baseweb="tab"][aria-selected="true"]{
 .stButton button, .stLinkButton a{
   border-radius: 14px !important;
   padding: 0.78rem 1.05rem !important;
-  font-weight: 700 !important;
+  font-weight: 800 !important;
+  color:#ffffff !important;               /* <-- force readable text */
 }
 .stButton button{
   background: var(--accent) !important;
-  color: #fff !important;
   border: none !important;
 }
 .stButton button:hover{ opacity: 0.92; }
@@ -156,8 +157,6 @@ button[data-baseweb="tab"][aria-selected="true"]{
 
 /* ---------------------------------------------------------
    FIX: SIDEBAR INPUT “BLOCKS” + DROPDOWN TEXT COLOR
-   Streamlit widgets use BaseWeb. Your sidebar rule sets
-   everything to light text, which was leaking into inputs.
 --------------------------------------------------------- */
 
 /* Sidebar input containers keep their own text colors */
@@ -185,7 +184,7 @@ section[data-testid="stSidebar"] [data-baseweb="select"] > div{
   border-radius: 14px !important;
 }
 
-/* The selected value text inside the select */
+/* Selected value + input text inside select */
 section[data-testid="stSidebar"] [data-baseweb="select"] *{
   color: var(--text) !important;
 }
@@ -195,7 +194,7 @@ section[data-testid="stSidebar"] [data-baseweb="select"] svg{
   color: var(--text) !important;
 }
 
-/* Dropdown menu panel + options */
+/* Dropdown menu panel + options (portal) */
 div[data-baseweb="popover"] *{
   color: var(--text) !important;
 }
@@ -216,7 +215,6 @@ div[data-baseweb="menu"] [role="option"]:hover{
 section[data-testid="stSidebar"] .stSlider *{
   color: var(--sideText) !important;
 }
-/* Slider min/max numeric labels often live outside .stSlider */
 section[data-testid="stSidebar"] [data-testid="stTickBarMin"],
 section[data-testid="stSidebar"] [data-testid="stTickBarMax"]{
   color: var(--sideText) !important;
@@ -494,10 +492,7 @@ def render_products(product_ids: list[str], products_df: pd.DataFrame, reasons: 
                 unsafe_allow_html=True
             )
             st.markdown("</div>", unsafe_allow_html=True)
-
-            link = str(p.get("Link", "")).strip()
-            if link.startswith("http"):
-                st.link_button("View product", link)
+            # (3) Removed "View product" button to avoid price leakage
 
 def render_schedule(schedule: dict, products_df: pd.DataFrame):
     prod_map = products_df.set_index("Product_ID").to_dict(orient="index")
@@ -663,26 +658,17 @@ with tabs[0]:
             st.info("No additional notes.")
 
         st.subheader("Checkout")
+
+        # (2) If Basic, ONLY show Basic subscribe. No Performance card.
         if plan == "Basic":
-            c1, c2 = st.columns([1, 1], gap="large")
-            with c1:
-                st.markdown("<div class='ibx-card'>", unsafe_allow_html=True)
-                st.markdown("<div style='font-size:18px; font-weight:950; color:#0f172a;'>IBEX Basic</div>", unsafe_allow_html=True)
-                st.markdown("<div class='ibx-muted'>Foundations, done right.</div>", unsafe_allow_html=True)
-                st.markdown("</div>", unsafe_allow_html=True)
-                if STRIPE_BASIC_LINK:
-                    st.link_button("Subscribe — IBEX Basic", STRIPE_BASIC_LINK)
-                else:
-                    st.info("Set STRIPE_BASIC_LINK in Streamlit Secrets.")
-            with c2:
-                st.markdown("<div class='ibx-card'>", unsafe_allow_html=True)
-                st.markdown("<div style='font-size:18px; font-weight:950; color:#0f172a;'>IBEX Performance</div>", unsafe_allow_html=True)
-                st.markdown("<div class='ibx-muted'>Optimization mode.</div>", unsafe_allow_html=True)
-                st.markdown("</div>", unsafe_allow_html=True)
-                if STRIPE_PERF_LINK:
-                    st.link_button("Upgrade — IBEX Performance", STRIPE_PERF_LINK)
-                else:
-                    st.info("Set STRIPE_PERF_LINK in Streamlit Secrets.")
+            st.markdown("<div class='ibx-card'>", unsafe_allow_html=True)
+            st.markdown("<div style='font-size:18px; font-weight:950; color:#0f172a;'>IBEX Basic</div>", unsafe_allow_html=True)
+            st.markdown("<div class='ibx-muted'>Foundations, done right.</div>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+            if STRIPE_BASIC_LINK:
+                st.link_button("Subscribe — IBEX Basic", STRIPE_BASIC_LINK)
+            else:
+                st.info("Set STRIPE_BASIC_LINK in Streamlit Secrets.")
         else:
             st.markdown("<div class='ibx-card'>", unsafe_allow_html=True)
             st.markdown("<div style='font-size:18px; font-weight:950; color:#0f172a;'>IBEX Performance</div>", unsafe_allow_html=True)
@@ -736,7 +722,7 @@ with tabs[0]:
             st.markdown("### About you")
             name = st.text_input("Full name")
             email = st.text_input("Email")
-            school = st.text_input("School", value="Lehigh")
+            school = st.text_input("School")  # (4) removed default "Lehigh"
 
             st.markdown("### Sport & training")
             sport = st.text_input("Sport")
