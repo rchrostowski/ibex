@@ -6,6 +6,7 @@ from datetime import date
 import pandas as pd
 import streamlit as st
 
+# Optional deps
 try:
     from PIL import Image
 except Exception:
@@ -16,6 +17,16 @@ try:
 except Exception:
     OpenAI = None
 
+try:
+    import stripe
+except Exception:
+    stripe = None
+
+try:
+    from supabase import create_client
+except Exception:
+    create_client = None
+
 
 # =========================================================
 # CONFIG / PATHS
@@ -25,24 +36,17 @@ APP_TAGLINE = "Personalized performance systems for athletes"
 
 PRODUCTS_CSV = "data/products.csv"
 EXCLUSIONS_CSV = "data/exclusions.csv"
-
-# HIGH-RES square logo (512x512 or 1024x1024 recommended)
 LOGO_PATH = "assets/ibex_logo.png"
 
-
-# ---------------------------------------------------------
-# PAGE CONFIG (favicon / engine tab icon)
-# ---------------------------------------------------------
 st.set_page_config(
     page_title=f"{APP_TITLE} • Performance Audit",
-    page_icon=LOGO_PATH,  # browser tab icon
+    page_icon=LOGO_PATH,
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-
 # =========================================================
-# PREMIUM STYLING (fix contrast + dropdowns + buttons)
+# STYLING (fix dropdown/input/button text colors everywhere)
 # =========================================================
 st.markdown(
     """
@@ -62,7 +66,6 @@ st.markdown(
   --sideText:#e5e7eb;
 }
 
-/* Hide Streamlit chrome */
 #MainMenu {visibility:hidden;}
 footer {visibility:hidden;}
 header {visibility:hidden;}
@@ -72,17 +75,14 @@ html, body, [class*="css"]{
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
 }
 
-/* Main typography */
 h1,h2,h3,h4,h5{ color:var(--text) !important; letter-spacing:-0.2px; }
 p,li,span,div,label{ color:var(--sub); }
 
-/* Sidebar base */
+/* Sidebar */
 section[data-testid="stSidebar"]{
   background: var(--side);
   border-right:1px solid var(--sideBorder);
 }
-
-/* Sidebar: headings/text should be light */
 section[data-testid="stSidebar"] h1,
 section[data-testid="stSidebar"] h2,
 section[data-testid="stSidebar"] h3,
@@ -95,10 +95,6 @@ section[data-testid="stSidebar"] div,
 section[data-testid="stSidebar"] label{
   color: var(--sideText) !important;
 }
-section[data-testid="stSidebar"] a{ color:#93c5fd !important; }
-
-/* Reduce top whitespace */
-.block-container{ padding-top: 1.0rem; }
 
 /* Cards */
 .ibx-card{
@@ -126,20 +122,7 @@ section[data-testid="stSidebar"] a{ color:#93c5fd !important; }
   margin: 14px 0;
 }
 
-/* Tabs */
-button[data-baseweb="tab"]{
-  color: var(--sub) !important;
-  font-weight: 700;
-  border-radius: 12px 12px 0 0 !important;
-}
-button[data-baseweb="tab"][aria-selected="true"]{
-  color: var(--accent) !important;
-  border-bottom: 3px solid var(--accent) !important;
-}
-
-/* ---------------------------------------------------------
-   GLOBAL INPUTS (main area) — readable text
---------------------------------------------------------- */
+/* Inputs (main) */
 .stTextInput input,
 .stTextArea textarea,
 .stNumberInput input{
@@ -155,7 +138,7 @@ button[data-baseweb="tab"][aria-selected="true"]{
   opacity: 1 !important;
 }
 
-/* BaseWeb select (selectbox/multiselect) — MAIN AREA */
+/* BaseWeb select (selectbox/multiselect) */
 div[data-baseweb="select"] > div{
   background:#ffffff !important;
   border:1px solid var(--border) !important;
@@ -168,36 +151,18 @@ div[data-baseweb="select"] svg{
   color: var(--text) !important;
 }
 
-/* Multiselect tags/pills */
-div[data-baseweb="tag"]{
-  background: rgba(15,23,42,0.06) !important;
-  border: 1px solid rgba(15,23,42,0.10) !important;
-  border-radius: 999px !important;
-}
-div[data-baseweb="tag"] *{
-  color: var(--text) !important;
-}
-
-/* Dropdown menu panel + options (portal) */
-div[data-baseweb="popover"] *{
-  color: var(--text) !important;
-}
+/* Dropdown menu (portal) */
+div[data-baseweb="popover"] *{ color: var(--text) !important; }
 div[data-baseweb="menu"]{
   background:#ffffff !important;
   border:1px solid rgba(15,23,42,0.10) !important;
   border-radius: 14px !important;
   overflow:hidden !important;
 }
-div[data-baseweb="menu"] [role="option"]{
-  background:#ffffff !important;
-}
-div[data-baseweb="menu"] [role="option"]:hover{
-  background: rgba(15,23,42,0.06) !important;
-}
+div[data-baseweb="menu"] [role="option"]{ background:#ffffff !important; }
+div[data-baseweb="menu"] [role="option"]:hover{ background: rgba(15,23,42,0.06) !important; }
 
-/* ---------------------------------------------------------
-   SIDEBAR INPUTS — force white fields with dark text
---------------------------------------------------------- */
+/* Sidebar inputs need white bg + dark text */
 section[data-testid="stSidebar"] .stTextInput input,
 section[data-testid="stSidebar"] .stTextArea textarea,
 section[data-testid="stSidebar"] .stNumberInput input{
@@ -206,31 +171,14 @@ section[data-testid="stSidebar"] .stNumberInput input{
   border:1px solid rgba(229,231,235,0.35) !important;
   border-radius: 14px !important;
 }
-section[data-testid="stSidebar"] .stTextInput input::placeholder,
-section[data-testid="stSidebar"] .stTextArea textarea::placeholder,
-section[data-testid="stSidebar"] .stNumberInput input::placeholder{
-  color: var(--muted) !important;
-  opacity: 1 !important;
-}
-
-/* Sidebar selectboxes/multiselects */
 section[data-testid="stSidebar"] div[data-baseweb="select"] > div{
   background:#ffffff !important;
   border:1px solid rgba(229,231,235,0.35) !important;
   border-radius: 14px !important;
 }
-section[data-testid="stSidebar"] div[data-baseweb="select"] *{
-  color: var(--text) !important;
-}
+section[data-testid="stSidebar"] div[data-baseweb="select"] *{ color: var(--text) !important; }
 
-/* Sidebar slider labels remain light */
-section[data-testid="stSidebar"] .stSlider *{
-  color: var(--sideText) !important;
-}
-
-/* ---------------------------------------------------------
-   BUTTONS — force readable text
---------------------------------------------------------- */
+/* Buttons */
 .stButton button{
   border-radius: 14px !important;
   padding: 0.78rem 1.05rem !important;
@@ -238,13 +186,10 @@ section[data-testid="stSidebar"] .stSlider *{
   background: var(--accent) !important;
   border: none !important;
 }
-.stButton button,
-.stButton button *{
-  color:#ffffff !important;
-}
+.stButton button, .stButton button *{ color:#ffffff !important; }
 .stButton button:hover{ opacity: 0.92; }
 
-/* Link buttons (Stripe) */
+/* Link buttons */
 div[data-testid="stLinkButton"] a{
   display:inline-flex !important;
   align-items:center !important;
@@ -256,10 +201,7 @@ div[data-testid="stLinkButton"] a{
   border: 1px solid rgba(17,24,39,0.15) !important;
   text-decoration: none !important;
 }
-div[data-testid="stLinkButton"] a,
-div[data-testid="stLinkButton"] a *{
-  color: #ffffff !important;
-}
+div[data-testid="stLinkButton"] a, div[data-testid="stLinkButton"] a *{ color:#ffffff !important; }
 div[data-testid="stLinkButton"] a:hover{ opacity:0.92; }
 </style>
 """,
@@ -273,14 +215,11 @@ div[data-testid="stLinkButton"] a:hover{ opacity:0.92; }
 def require_file(path: str, friendly: str):
     if not os.path.exists(path):
         st.error(f"Missing {friendly}: `{path}`")
-        st.info("Fix: upload the file to your GitHub repo in the correct folder, then reboot the app.")
         st.stop()
 
 
 def load_logo():
-    if not os.path.exists(LOGO_PATH):
-        return None
-    if Image is None:
+    if not os.path.exists(LOGO_PATH) or Image is None:
         return None
     try:
         return Image.open(LOGO_PATH)
@@ -292,14 +231,6 @@ def load_logo():
 def load_products():
     df = pd.read_csv(PRODUCTS_CSV)
     df.columns = [c.strip() for c in df.columns]
-    required = [
-        "Product_ID", "Category", "Ingredient", "Brand", "Store", "Link",
-        "Serving_Form", "Typical_Use", "Timing", "Avoid_If",
-        "Third_Party_Tested", "NSF_Certified", "Price", "Est_Monthly_Cost", "Notes"
-    ]
-    missing = [c for c in required if c not in df.columns]
-    if missing:
-        raise ValueError(f"products.csv missing columns: {missing}")
     return df
 
 
@@ -307,8 +238,6 @@ def load_products():
 def load_exclusions():
     df = pd.read_csv(EXCLUSIONS_CSV)
     df.columns = [c.strip() for c in df.columns]
-    if "Excluded_Category_or_Ingredient" not in df.columns or "Reason" not in df.columns:
-        raise ValueError("exclusions.csv must have columns: Excluded_Category_or_Ingredient, Reason")
     return df
 
 
@@ -316,20 +245,36 @@ def get_openai_client():
     api_key = st.secrets.get("OPENAI_API_KEY")
     if not api_key:
         st.error("Missing OPENAI_API_KEY in Streamlit Secrets.")
-        st.info("Streamlit → Manage app → Settings → Secrets → add OPENAI_API_KEY.")
         st.stop()
     if OpenAI is None:
-        st.error("openai package not installed. Ensure requirements.txt includes `openai`.")
+        st.error("Missing `openai` package. Add `openai` to requirements.txt.")
         st.stop()
     return OpenAI(api_key=api_key)
 
 
-def is_yes(val) -> bool:
-    return str(val).strip().lower() in {"y", "yes", "true", "1"}
+def get_supabase():
+    url = st.secrets.get("SUPABASE_URL")
+    key = st.secrets.get("SUPABASE_SERVICE_ROLE_KEY")
+    if not url or not key:
+        return None
+    if create_client is None:
+        st.warning("Supabase not installed. Add `supabase` to requirements.txt to save audits/orders.")
+        return None
+    return create_client(url, key)
+
+
+def get_stripe():
+    sk = st.secrets.get("STRIPE_SECRET_KEY")
+    if not sk:
+        return None
+    if stripe is None:
+        st.error("Missing `stripe` package. Add `stripe` to requirements.txt.")
+        st.stop()
+    stripe.api_key = sk
+    return stripe
 
 
 def qp_get(key: str):
-    """Streamlit query params can be str or list[str] depending on version."""
     try:
         v = st.query_params.get(key)
     except Exception:
@@ -339,163 +284,73 @@ def qp_get(key: str):
     return v
 
 
+def is_yes(val) -> bool:
+    return str(val).strip().lower() in {"y", "yes", "true", "1"}
+
+
 def render_header():
     logo = load_logo()
-    if logo is not None:
-        c1, c2 = st.columns([1, 7], gap="large")
-        with c1:
-            st.image(logo, width=140)  # crisp + bigger
-        with c2:
-            st.markdown(
-                f"<div style='font-size:44px; font-weight:950; color:#0f172a; margin-top:2px;'>{APP_TITLE}</div>",
-                unsafe_allow_html=True,
-            )
-            st.markdown(
-                f"<div class='ibx-muted' style='font-size:16px; margin-top:-6px;'>{APP_TAGLINE}</div>",
-                unsafe_allow_html=True,
-            )
-            st.markdown(
-                """
-                <div style="margin-top:10px;">
-                  <span class="ibx-badge">Plan-aware AI</span>
-                  <span class="ibx-badge">Privacy-first</span>
-                  <span class="ibx-badge">Athlete-safe guardrails</span>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-    else:
+    c1, c2 = st.columns([1, 7], gap="large")
+    with c1:
+        if logo is not None:
+            st.image(logo, width=140)
+    with c2:
         st.markdown(
-            f"""
-            <div class="ibx-card">
-              <div style="font-size:44px; font-weight:950; color:#0f172a;">{APP_TITLE}</div>
-              <div class="ibx-muted" style="font-size:16px;">{APP_TAGLINE}</div>
+            f"<div style='font-size:44px; font-weight:950; color:#0f172a; margin-top:2px;'>{APP_TITLE}</div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f"<div class='ibx-muted' style='font-size:16px; margin-top:-6px;'>{APP_TAGLINE}</div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            """
+            <div style="margin-top:10px;">
+              <span class="ibx-badge">Plan-aware AI</span>
+              <span class="ibx-badge">Privacy-first</span>
+              <span class="ibx-badge">Athlete-safe guardrails</span>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
 
-def render_audit_id_callout(rid: str):
-    # NOTE: uses a small HTML button for clipboard copy (works in modern browsers)
+def audit_id_box(rid: str):
     st.markdown(
         f"""
-        <div class="ibx-card" style="border:2px solid #ef4444;">
-          <div style="font-size:20px; font-weight:950; color:#0f172a;">
-            ⚠️ Copy this: IBEX Audit ID
-          </div>
-          <div class="ibx-muted" style="margin-top:6px;">
-            You <strong>must paste this ID during checkout</strong> (field: <strong>IBEX Audit ID</strong>) so we can match your payment to your personalized system.
-          </div>
-
-          <div style="
-            margin-top:14px;
-            font-size:22px;
-            font-weight:950;
-            background:#f8fafc;
-            border:1px dashed #ef4444;
-            border-radius:12px;
-            padding:14px;
-            color:#0f172a;
-            text-align:center;
-            letter-spacing:0.6px;
-            user-select: all;
-          ">
-            {rid}
-          </div>
-
-          <div style="margin-top:12px; text-align:center;">
-            <button onclick="navigator.clipboard.writeText('{rid}')" style="
-              padding:10px 18px;
-              border-radius:12px;
-              background:#ef4444;
-              color:white;
-              font-weight:950;
-              border:none;
-              cursor:pointer;
-            ">
-              Copy Audit ID
-            </button>
-          </div>
-
-          <div class="ibx-muted" style="margin-top:10px; font-size:12px;">
-            Tip: if you’re on mobile, tap-and-hold the code to copy.
-          </div>
-        </div>
-        """,
+<div class="ibx-card" style="border:2px solid #ef4444;">
+  <div style="font-size:20px; font-weight:950; color:#0f172a;">⚠️ Copy this: IBEX Audit ID</div>
+  <div class="ibx-muted" style="margin-top:6px;">
+    You <strong>must paste this ID during checkout</strong> (Stripe field: <strong>IBEX Audit ID</strong>) so we can match your payment to your personalized system.
+  </div>
+  <div style="
+    margin-top:14px;
+    font-size:22px;
+    font-weight:950;
+    background:#f8fafc;
+    border:1px dashed #ef4444;
+    border-radius:12px;
+    padding:14px;
+    color:#0f172a;
+    text-align:center;
+    letter-spacing:0.6px;
+    user-select: all;
+  ">{rid}</div>
+  <div style="margin-top:12px; text-align:center;">
+    <button onclick="navigator.clipboard.writeText('{rid}')" style="
+      padding:10px 18px; border-radius:12px; background:#ef4444; color:white;
+      font-weight:950; border:none; cursor:pointer;
+    ">Copy Audit ID</button>
+  </div>
+  <div class="ibx-muted" style="margin-top:10px; font-size:12px;">Tip: on mobile, tap-and-hold the code to copy.</div>
+</div>
+""",
         unsafe_allow_html=True,
     )
 
 
 # =========================================================
-# THANK YOU / CONFIRMATION PAGE (Stripe redirect)
-# =========================================================
-success = qp_get("success")
-session_id = qp_get("session_id")
-
-if success == "true" and session_id:
-    require_file(LOGO_PATH, "logo (assets/ibex_logo.png)")
-    logo = load_logo()
-
-    st.markdown(
-        """
-        <div style="min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px;">
-          <div class="ibx-card" style="max-width:760px; width:100%; text-align:center;">
-        """,
-        unsafe_allow_html=True,
-    )
-
-    if logo is not None:
-        st.image(logo, width=120)
-
-    st.markdown(
-        """
-        <div style="font-size:40px; font-weight:950; color:#0f172a; margin-top:10px;">
-          Payment confirmed.
-        </div>
-        <div class="ibx-muted" style="margin-top:10px; font-size:16px; line-height:1.7;">
-          Thank you for joining IBEX. Your subscription is active and your first shipment is being prepared.
-        </div>
-        <div class="ibx-divider"></div>
-
-        <div style="font-size:18px; font-weight:900; color:#0f172a;">
-          What happens next
-        </div>
-        <div class="ibx-muted" style="margin-top:8px; line-height:1.8;">
-          • You’ll receive a confirmation email from Stripe<br/>
-          • We’ll review your audit and lock your first box configuration<br/>
-          • Your tracking info will be sent when it ships
-        </div>
-
-        <div class="ibx-divider"></div>
-        <div class="ibx-muted" style="font-size:13px;">
-          Stripe Session ID<br/>
-          <strong style="color:#0f172a;">{}</strong>
-        </div>
-
-        <div style="margin-top:22px;">
-          <a href="/" style="
-            display:inline-block;
-            padding:12px 22px;
-            border-radius:14px;
-            background:#111827;
-            color:white;
-            font-weight:950;
-            text-decoration:none;
-          ">
-            Return to IBEX
-          </a>
-        </div>
-        """.format(session_id),
-        unsafe_allow_html=True,
-    )
-
-    st.markdown("</div></div>", unsafe_allow_html=True)
-    st.stop()
-
-
-# =========================================================
-# PLAN DEFINITIONS (premium copy)
+# PLAN COPY
 # =========================================================
 PLAN_COPY = {
     "Basic": {
@@ -537,7 +392,6 @@ def filter_products_by_plan(products: pd.DataFrame, plan: str) -> pd.DataFrame:
 def shortlist_products(products: pd.DataFrame, goals: list[str], gi_sensitive: bool, caffeine_sensitive: bool, plan: str) -> pd.DataFrame:
     p = filter_products_by_plan(products, plan)
 
-    # Goal matching (soft)
     if goals:
         mask = False
         for g in goals:
@@ -545,20 +399,17 @@ def shortlist_products(products: pd.DataFrame, goals: list[str], gi_sensitive: b
         if mask is not False:
             p = p[mask]
 
-    # Sensitivities
     if gi_sensitive:
         p = p[~p["Avoid_If"].astype(str).str.contains("GI", case=False, na=False)]
     if caffeine_sensitive:
         p = p[~p["Avoid_If"].astype(str).str.contains("caffeine", case=False, na=False)]
 
-    # Basic: certified/tested preference
     if plan == "Basic":
         p = p.assign(
             nsf=p["NSF_Certified"].apply(is_yes),
             tpt=p["Third_Party_Tested"].apply(lambda x: str(x).strip().lower() in {"y", "yes", "true", "1", "unknown"})
         ).sort_values(["nsf", "tpt"], ascending=[False, False]).drop(columns=["nsf", "tpt"])
 
-    # Broaden if too narrow
     if len(p) < 25:
         p = filter_products_by_plan(products, plan).copy()
 
@@ -639,20 +490,19 @@ def render_products(product_ids: list[str], products_df: pd.DataFrame, reasons: 
         p = prod_map.get(pid)
         if not p:
             continue
-
         with cols[i % 3]:
             st.markdown("<div class='ibx-card'>", unsafe_allow_html=True)
             st.markdown(
                 f"""
                 <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;">
-                  <span class="ibx-badge">{p['Category']}</span>
-                  <span class="ibx-badge">{p['Timing']}</span>
+                  <span class="ibx-badge">{p.get('Category','')}</span>
+                  <span class="ibx-badge">{p.get('Timing','')}</span>
                 </div>
                 <div style="margin-top:12px; font-size:18px; font-weight:950; color:#0f172a;">
-                  {p['Ingredient']}
+                  {p.get('Ingredient','')}
                 </div>
                 <div class="ibx-muted" style="margin-top:2px;">
-                  {p['Brand']} • {p['Serving_Form']} • {p['Store']}
+                  {p.get('Brand','')} • {p.get('Serving_Form','')} • {p.get('Store','')}
                 </div>
                 <div class="ibx-divider"></div>
                 <div style="font-weight:900; color:#0f172a;">Why this</div>
@@ -695,41 +545,8 @@ def render_privacy_policy():
   <div style="font-size:26px; font-weight:950; color:#0f172a;">Privacy Policy</div>
   <div class="ibx-muted" style="margin-top:4px;">Effective: {eff}</div>
   <div class="ibx-divider"></div>
-
-  <p><strong>IBEX</strong> (“IBEX,” “we,” “us”) provides an athlete-focused performance audit and personalized supplement organization experience.
-  This Privacy Policy explains what we collect, how we use it, and your choices.</p>
-
-  <h3>What we collect</h3>
-  <ul>
-    <li><strong>Audit inputs</strong> you choose to provide (training, sleep, stress, preferences).</li>
-    <li><strong>Contact info</strong> (email, name if provided).</li>
-    <li><strong>Checkout info</strong> (shipping + payment) processed by <strong>Stripe</strong>. We do not store your full card number.</li>
-  </ul>
-
-  <h3>How we use it</h3>
-  <ul>
-    <li>Generate your personalized system and schedule.</li>
-    <li>Operate subscriptions and fulfill shipments (if you purchase).</li>
-    <li>Provide support and improve the product (prefer aggregated insights when possible).</li>
-  </ul>
-
-  <h3>What we do NOT do</h3>
-  <ul>
-    <li>We do <strong>not</strong> sell your personal data.</li>
-    <li>We do <strong>not</strong> share your data with third parties for their marketing.</li>
-  </ul>
-
-  <h3>AI processing</h3>
-  <p>Your audit inputs are sent to an AI model to generate recommendations. IBEX is not a medical service and does not provide medical advice.</p>
-
-  <h3>Retention & deletion</h3>
-  <p>We retain data only as long as needed to provide the service and meet legal obligations. You can request deletion at any time.</p>
-
-  <h3>Contact</h3>
-  <p>Email: <strong>support@ibexperformance.com</strong> (replace with your real support email)</p>
-
-  <div class="ibx-divider"></div>
-  <div class="ibx-muted" style="font-size:12px;">Template for MVP use, not legal advice.</div>
+  <p><strong>IBEX</strong> (“we”) provides an athlete-focused performance audit. We do not sell your data.</p>
+  <p class="ibx-muted" style="font-size:12px;">Template for MVP use, not legal advice.</p>
 </div>
 """,
         unsafe_allow_html=True
@@ -742,15 +559,8 @@ def render_faq():
 <div class="ibx-card">
   <div style="font-size:26px; font-weight:950; color:#0f172a;">FAQ</div>
   <div class="ibx-divider"></div>
-
   <h3>Is this medical advice?</h3>
-  <p class="ibx-muted">No. IBEX is informational/organizational. Consult a qualified professional for medical concerns.</p>
-
-  <h3>What’s the difference between Basic and Performance?</h3>
-  <p class="ibx-muted"><strong>Basic</strong> is a conservative, essentials-only system. <strong>Performance</strong> unlocks a broader catalog and conditional optimization.</p>
-
-  <h3>Do you sell my data?</h3>
-  <p class="ibx-muted">No.</p>
+  <p class="ibx-muted">No. Consult a qualified professional for medical concerns.</p>
 </div>
 """,
         unsafe_allow_html=True
@@ -758,7 +568,7 @@ def render_faq():
 
 
 # =========================================================
-# APP START
+# FILE CHECKS + DATA
 # =========================================================
 require_file(PRODUCTS_CSV, "products.csv (data/products.csv)")
 require_file(EXCLUSIONS_CSV, "exclusions.csv (data/exclusions.csv)")
@@ -770,7 +580,145 @@ exclusions = load_exclusions()
 STRIPE_BASIC_LINK = st.secrets.get("STRIPE_BASIC_LINK", "")
 STRIPE_PERF_LINK = st.secrets.get("STRIPE_PERF_LINK", "")
 
-# Session state
+
+# =========================================================
+# THANK YOU / STRIPE RETURN HANDLER
+# =========================================================
+success = qp_get("success")
+session_id = qp_get("session_id")
+
+if success == "true" and session_id:
+    render_header()
+
+    st.success("Payment confirmed.")
+
+    # Pull Stripe session details (so you can see what they bought + shipping + email)
+    sb = get_supabase()
+    stp = get_stripe()
+
+    session_obj = None
+    line_items = None
+
+    if stp is None:
+        st.warning("Add STRIPE_SECRET_KEY to Secrets to show checkout details here.")
+    else:
+        try:
+            session_obj = stripe.checkout.Session.retrieve(
+                session_id,
+                expand=["line_items", "customer_details", "shipping_details"]
+            )
+            line_items = session_obj.get("line_items", {})
+        except Exception as e:
+            st.error("Could not retrieve Stripe session. Check your STRIPE_SECRET_KEY (test vs live).")
+            st.exception(e)
+
+    # Display details nicely (NO blank page)
+    if session_obj:
+        cust = session_obj.get("customer_details") or {}
+        ship = session_obj.get("shipping_details") or {}
+        st.markdown("<div class='ibx-card'>", unsafe_allow_html=True)
+        st.subheader("Order details")
+        st.write("**Email:**", cust.get("email", "—"))
+        st.write("**Name:**", cust.get("name", "—"))
+
+        if ship:
+            st.write("**Shipping:**")
+            st.json(ship)
+
+        if line_items and line_items.get("data"):
+            st.write("**Items:**")
+            items_view = []
+            for li in line_items["data"]:
+                items_view.append({
+                    "description": li.get("description"),
+                    "quantity": li.get("quantity"),
+                    "amount_total": li.get("amount_total"),
+                    "currency": li.get("currency"),
+                })
+            st.json(items_view)
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        # Try to find the Audit ID the user typed into Stripe
+        audit_id = None
+        try:
+            # Payment Links custom fields often show up here
+            custom_fields = session_obj.get("custom_fields") or []
+            for cf in custom_fields:
+                label = (cf.get("label") or {}).get("custom") or ""
+                if "audit" in label.lower():
+                    audit_id = (cf.get("text") or {}).get("value")
+        except Exception:
+            pass
+
+        # Also check metadata (if you later set it)
+        if not audit_id:
+            md = session_obj.get("metadata") or {}
+            audit_id = md.get("ibex_audit_id")
+
+        if audit_id:
+            st.info(f"Matched **IBEX Audit ID:** `{audit_id}`")
+        else:
+            st.warning("No IBEX Audit ID found on this Stripe session. Make sure your Payment Link has a required custom field named 'IBEX Audit ID'.")
+
+        # Save order to Supabase (so you can SEE it)
+        if sb is None:
+            st.warning("Supabase not connected (missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY). Not saving order.")
+        else:
+            try:
+                plan_guess = None
+                # rough guess based on first line item description
+                if line_items and line_items.get("data"):
+                    desc = (line_items["data"][0].get("description") or "").lower()
+                    if "performance" in desc:
+                        plan_guess = "Performance"
+                    elif "basic" in desc:
+                        plan_guess = "Basic"
+
+                sb.table("orders").upsert({
+                    "stripe_session_id": session_id,
+                    "stripe_payment_intent": session_obj.get("payment_intent"),
+                    "stripe_customer_email": (session_obj.get("customer_details") or {}).get("email"),
+                    "stripe_customer_name": (session_obj.get("customer_details") or {}).get("name"),
+                    "stripe_shipping": session_obj.get("shipping_details"),
+                    "stripe_line_items": line_items,
+                    "plan": plan_guess,
+                    "audit_id": audit_id,
+                    "raw_session": session_obj,
+                }).execute()
+
+                # If audit_id present, mark audit as paid
+                if audit_id:
+                    try:
+                        sb.table("audits").update({"status": "paid"}).eq("id", audit_id).execute()
+                    except Exception:
+                        pass
+
+                st.success("Saved order to Supabase ✅ (table: orders)")
+            except Exception as e:
+                st.error("Supabase save failed. Double-check your tables + service role key.")
+                st.exception(e)
+
+    st.markdown("<div class='ibx-card'>", unsafe_allow_html=True)
+    st.subheader("Next steps")
+    st.write("• You’ll receive a Stripe confirmation email.")
+    st.write("• We’ll match your order to your audit using your IBEX Audit ID.")
+    st.write("• You’ll get tracking when it ships.")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    if st.button("Return to IBEX (start / view audit)"):
+        try:
+            st.query_params.clear()
+        except Exception:
+            pass
+        st.rerun()
+
+    st.stop()
+
+
+# =========================================================
+# SESSION STATE
+# =========================================================
 if "ai_out" not in st.session_state:
     st.session_state.ai_out = None
 if "last_plan" not in st.session_state:
@@ -778,16 +726,14 @@ if "last_plan" not in st.session_state:
 if "last_rid" not in st.session_state:
     st.session_state.last_rid = None
 
-render_header()
 
+# =========================================================
+# MAIN APP
+# =========================================================
+render_header()
 tabs = st.tabs(["Audit", "Privacy", "FAQ"])
 
-
-# =========================================================
-# TAB: AUDIT
-# =========================================================
 with tabs[0]:
-    # Results at top (no scroll for results)
     if st.session_state.ai_out:
         ai_out = st.session_state.ai_out
         plan = st.session_state.last_plan
@@ -811,14 +757,10 @@ with tabs[0]:
             unsafe_allow_html=True
         )
 
-        # 🔥 Make Audit ID extremely obvious + copyable
-        render_audit_id_callout(rid)
+        audit_id_box(rid)
 
         if ai_out.get("consult_professional", False):
             st.warning("Based on what you shared, consult a qualified professional. We kept this conservative.")
-        flags = ai_out.get("flags", [])
-        if flags:
-            st.caption("Signals detected: " + ", ".join(flags))
 
         st.subheader("Recommended Stack")
         render_products(ai_out.get("included_product_ids", []), products, ai_out.get("reasons", {}))
@@ -826,38 +768,19 @@ with tabs[0]:
         st.subheader("Schedule")
         render_schedule(ai_out.get("schedule", {}), products)
 
-        st.subheader("Notes")
-        notes = ai_out.get("notes_for_athlete", [])
-        if notes:
-            st.markdown("<div class='ibx-card'>", unsafe_allow_html=True)
-            for n in notes:
-                st.write(f"• {n}")
-            st.markdown("</div>", unsafe_allow_html=True)
-        else:
-            st.info("No additional notes.")
-
         st.subheader("Checkout")
-
-        st.info("Before you checkout: copy your **IBEX Audit ID** above and paste it into the required field on the Stripe checkout page.")
+        st.info("Copy your **IBEX Audit ID** above and paste it into the Stripe field **IBEX Audit ID** during checkout.")
 
         if plan == "Basic":
-            st.markdown("<div class='ibx-card'>", unsafe_allow_html=True)
-            st.markdown("<div style='font-size:18px; font-weight:950; color:#0f172a;'>IBEX Basic</div>", unsafe_allow_html=True)
-            st.markdown("<div class='ibx-muted'>Foundations, done right.</div>", unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
             if STRIPE_BASIC_LINK:
                 st.link_button("Subscribe — IBEX Basic", STRIPE_BASIC_LINK)
             else:
-                st.info("Set STRIPE_BASIC_LINK in Streamlit Secrets.")
+                st.warning("Missing STRIPE_BASIC_LINK in Secrets.")
         else:
-            st.markdown("<div class='ibx-card'>", unsafe_allow_html=True)
-            st.markdown("<div style='font-size:18px; font-weight:950; color:#0f172a;'>IBEX Performance</div>", unsafe_allow_html=True)
-            st.markdown("<div class='ibx-muted'>Expanded catalog + conditional optimization.</div>", unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
             if STRIPE_PERF_LINK:
                 st.link_button("Subscribe — IBEX Performance", STRIPE_PERF_LINK)
             else:
-                st.info("Set STRIPE_PERF_LINK in Streamlit Secrets.")
+                st.warning("Missing STRIPE_PERF_LINK in Secrets.")
 
         if st.button("Start a new audit"):
             st.session_state.ai_out = None
@@ -870,14 +793,13 @@ with tabs[0]:
             <div class="ibx-card">
               <div style="font-size:28px; font-weight:950; color:#0f172a;">Performance Audit</div>
               <div class="ibx-muted" style="margin-top:6px;">
-                Fill out the audit in the sidebar. Your results appear here instantly — no scrolling.
+                Fill out the audit in the sidebar. Your results appear here instantly.
               </div>
             </div>
             """,
             unsafe_allow_html=True
         )
 
-    # Sidebar form
     with st.sidebar:
         st.markdown("## IBEX Audit")
         st.caption("Plan → Audit → Instant system.")
@@ -972,24 +894,32 @@ with tabs[0]:
             with st.spinner("Generating your system…"):
                 ai_out = run_ai(intake, shortlist, exclusions, plan)
 
+            # Save audit to Supabase
+            sb = get_supabase()
+            if sb is not None:
+                try:
+                    sb.table("audits").insert({
+                        "id": rid,
+                        "plan": plan,
+                        "intake": intake,
+                        "ai_out": ai_out,
+                        "status": "created",
+                    }).execute()
+                except Exception as e:
+                    st.warning("Could not save audit to Supabase (check tables/keys).")
+                    st.exception(e)
+
             st.session_state.ai_out = ai_out
             st.session_state.last_plan = plan
             st.session_state.last_rid = rid
             st.rerun()
 
-
-# =========================================================
-# TAB: PRIVACY
-# =========================================================
 with tabs[1]:
     render_privacy_policy()
 
-
-# =========================================================
-# TAB: FAQ
-# =========================================================
 with tabs[2]:
     render_faq()
+
 
 
 
