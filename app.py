@@ -6,6 +6,45 @@ from datetime import date
 import pandas as pd
 import streamlit as st
 
+
+def stripe_retrieve_session(session_id: str):
+    try:
+        import stripe
+    except Exception as e:
+        st.error("Stripe package not installed (missing `stripe` in requirements.txt).")
+        st.exception(e)
+        return None
+
+    key = st.secrets.get("STRIPE_SECRET_KEY", "")
+    if not key:
+        st.error("Missing STRIPE_SECRET_KEY in Streamlit Secrets.")
+        return None
+
+    # show a safe fingerprint to confirm Streamlit is using the key you set
+    st.caption(f"Stripe key loaded: {key[:7]}…{key[-4:]} (len={len(key)})")
+    st.caption(f"Session id: {session_id[:10]}…")
+
+    stripe.api_key = key
+
+    try:
+        # Expand useful fields
+        sess = stripe.checkout.Session.retrieve(
+            session_id,
+            expand=["customer", "subscription", "shipping_details"]
+        )
+        return sess
+    except Exception as e:
+        st.error("Stripe API call failed. Here is the real error:")
+        st.exception(e)
+        return None
+
+
+
+
+
+
+
+
 # Optional deps
 try:
     from PIL import Image
