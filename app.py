@@ -46,7 +46,7 @@ st.set_page_config(
 )
 
 # =========================================================
-# PREMIUM STYLING
+# PREMIUM STYLING (fix dropdowns, buttons, contrast)
 # =========================================================
 st.markdown(
     """
@@ -155,7 +155,7 @@ div[data-baseweb="menu"]{
 div[data-baseweb="menu"] [role="option"]{ background:#ffffff !important; }
 div[data-baseweb="menu"] [role="option"]:hover{ background: rgba(15,23,42,0.06) !important; }
 
-/* Sidebar inputs white bg */
+/* Sidebar inputs: white bubbles + dark text */
 section[data-testid="stSidebar"] .stTextInput input,
 section[data-testid="stSidebar"] .stTextArea textarea,
 section[data-testid="stSidebar"] .stNumberInput input{
@@ -163,6 +163,10 @@ section[data-testid="stSidebar"] .stNumberInput input{
   color: var(--text) !important;
   border:1px solid rgba(229,231,235,0.35) !important;
   border-radius: 14px !important;
+}
+section[data-testid="stSidebar"] .stTextInput input::placeholder,
+section[data-testid="stSidebar"] .stTextArea textarea::placeholder{
+  color: var(--muted) !important;
 }
 section[data-testid="stSidebar"] div[data-baseweb="select"] > div{
   background:#ffffff !important;
@@ -197,6 +201,16 @@ div[data-testid="stLinkButton"] a{
 div[data-testid="stLinkButton"] a, div[data-testid="stLinkButton"] a *{ color:#ffffff !important; }
 div[data-testid="stLinkButton"] a:hover{ opacity:0.92; }
 
+/* Tabs */
+button[data-baseweb="tab"]{
+  color: var(--sub) !important;
+  font-weight: 800;
+}
+button[data-baseweb="tab"][aria-selected="true"]{
+  color: var(--accent) !important;
+  border-bottom: 3px solid var(--accent) !important;
+}
+
 /* Status banners */
 .ibx-banner-success{
   background: var(--successBg);
@@ -215,7 +229,6 @@ div[data-testid="stLinkButton"] a:hover{ opacity:0.92; }
   font-weight: 750;
 }
 
-/* Copy box */
 .ibx-copy{
   margin-top:12px;
   font-size:20px;
@@ -234,7 +247,6 @@ div[data-testid="stLinkButton"] a:hover{ opacity:0.92; }
     unsafe_allow_html=True,
 )
 
-
 # =========================================================
 # HELPERS
 # =========================================================
@@ -242,7 +254,6 @@ def require_file(path: str, friendly: str):
     if not os.path.exists(path):
         st.error(f"Missing {friendly}: `{path}`")
         st.stop()
-
 
 def load_logo():
     if not os.path.exists(LOGO_PATH) or Image is None:
@@ -252,20 +263,17 @@ def load_logo():
     except Exception:
         return None
 
-
 @st.cache_data(show_spinner=False)
 def load_products():
     df = pd.read_csv(PRODUCTS_CSV)
     df.columns = [c.strip() for c in df.columns]
     return df
 
-
 @st.cache_data(show_spinner=False)
 def load_exclusions():
     df = pd.read_csv(EXCLUSIONS_CSV)
     df.columns = [c.strip() for c in df.columns]
     return df
-
 
 def get_openai_client():
     api_key = st.secrets.get("OPENAI_API_KEY")
@@ -276,7 +284,6 @@ def get_openai_client():
         st.error("Missing `openai` package. Add `openai` to requirements.txt.")
         st.stop()
     return OpenAI(api_key=api_key)
-
 
 def get_supabase():
     url = st.secrets.get("SUPABASE_URL")
@@ -290,7 +297,6 @@ def get_supabase():
     except Exception as e:
         return None, f"Supabase init failed: {e}"
 
-
 def get_stripe():
     sk = st.secrets.get("STRIPE_SECRET_KEY")
     if not sk:
@@ -303,7 +309,6 @@ def get_stripe():
     except Exception as e:
         return None, f"Stripe init failed: {e}"
 
-
 def qp_get(key: str):
     try:
         v = st.query_params.get(key)
@@ -312,7 +317,6 @@ def qp_get(key: str):
     if isinstance(v, list):
         return v[0] if v else None
     return v
-
 
 def render_header():
     logo = load_logo()
@@ -340,15 +344,12 @@ def render_header():
             unsafe_allow_html=True,
         )
 
-
 def audit_id_box(rid: str):
     st.markdown(
         f"""
 <div class="ibx-card" style="border:1px solid rgba(239,68,68,0.35); background: linear-gradient(180deg,#fff, #fff5f5);">
   <div style="font-size:18px; font-weight:950; color:#0b1220;">IBEX Audit ID (copy + paste during checkout)</div>
-  <div class="ibx-muted" style="margin-top:6px;">
-    This links your payment to your personalized recommendations.
-  </div>
+  <div class="ibx-muted" style="margin-top:6px;">This links your payment to your personalized recommendations.</div>
   <div class="ibx-copy">{rid}</div>
   <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap; justify-content:center;">
     <button onclick="navigator.clipboard.writeText('{rid}')" style="
@@ -361,9 +362,11 @@ def audit_id_box(rid: str):
         unsafe_allow_html=True,
     )
 
+def is_yes(v) -> bool:
+    return str(v).strip().lower() in {"y", "yes", "true", "1"}
 
 # =========================================================
-# PLAN COPY
+# PLAN DEFINITIONS
 # =========================================================
 PLAN_COPY = {
     "Basic": {
@@ -388,11 +391,55 @@ PLAN_COPY = {
     },
 }
 
+BASIC_CORE_CATEGORIES = {
+    "Creatine","Omega-3","Magnesium","Vitamin D","Electrolytes","Protein",
+    "Multivitamin","Zinc","Vitamin C","Probiotic","Fiber","Collagen","Tart Cherry"
+}
+
+def filter_products_by_plan(products: pd.DataFrame, plan: str) -> pd.DataFrame:
+    p = products.copy()
+    if "Category" in p.columns:
+        p["Category_norm"] = p["Category"].astype(str).str.strip()
+    else:
+        p["Category_norm"] = ""
+    if plan == "Basic":
+        return p[p["Category_norm"].isin(BASIC_CORE_CATEGORIES)]
+    return p
+
+def shortlist_products(products: pd.DataFrame, goals: list[str], gi_sensitive: bool, caffeine_sensitive: bool, plan: str) -> pd.DataFrame:
+    p = filter_products_by_plan(products, plan)
+
+    if goals and "Typical_Use" in p.columns:
+        mask = False
+        for g in goals:
+            mask = mask | p["Typical_Use"].astype(str).str.contains(g, case=False, na=False)
+        if mask is not False:
+            p = p[mask]
+
+    if gi_sensitive and "Avoid_If" in p.columns:
+        p = p[~p["Avoid_If"].astype(str).str.contains("GI", case=False, na=False)]
+    if caffeine_sensitive and "Avoid_If" in p.columns:
+        p = p[~p["Avoid_If"].astype(str).str.contains("caffeine", case=False, na=False)]
+
+    # Prefer certified/tested in Basic
+    if plan == "Basic":
+        if "NSF_Certified" in p.columns and "Third_Party_Tested" in p.columns:
+            p = p.assign(
+                nsf=p["NSF_Certified"].apply(is_yes),
+                tpt=p["Third_Party_Tested"].apply(lambda x: str(x).strip().lower() in {"y","yes","true","1","unknown"})
+            ).sort_values(["nsf","tpt"], ascending=[False, False]).drop(columns=["nsf","tpt"])
+
+    if len(p) < 25:
+        p = filter_products_by_plan(products, plan).copy()
+
+    cap = 55 if plan == "Basic" else 85
+    return p.head(cap)
 
 def run_ai(intake: dict, products_shortlist: pd.DataFrame, exclusions: pd.DataFrame, plan: str) -> dict:
     client = get_openai_client()
 
     approved_products = products_shortlist.to_dict(orient="records")
+
     output_schema = {
         "flags": ["string"],
         "consult_professional": "boolean",
@@ -449,6 +496,61 @@ def run_ai(intake: dict, products_shortlist: pd.DataFrame, exclusions: pd.DataFr
             return json.loads(content[start:end + 1])
         raise
 
+def render_products(product_ids: list[str], products_df: pd.DataFrame, reasons: dict):
+    if not product_ids:
+        st.info("No products returned. Try broadening your goals or adding notes.")
+        return
+
+    prod_map = products_df.set_index("Product_ID").to_dict(orient="index") if "Product_ID" in products_df.columns else {}
+    cols = st.columns(3, gap="large")
+
+    for i, pid in enumerate(product_ids):
+        p = prod_map.get(pid, {})
+        with cols[i % 3]:
+            st.markdown("<div class='ibx-card'>", unsafe_allow_html=True)
+            cat = p.get("Category", "Recommendation")
+            timing = p.get("Timing", "—")
+            ingredient = p.get("Ingredient", pid)
+            brand = p.get("Brand", "")
+            form = p.get("Serving_Form", "")
+            store = p.get("Store", "")
+
+            st.markdown(
+                f"""
+                <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+                  <span class="ibx-badge">{cat}</span>
+                  <span class="ibx-badge">{timing}</span>
+                </div>
+                <div style="margin-top:12px; font-size:18px; font-weight:900; color:#0b1220;">{ingredient}</div>
+                <div class="ibx-muted" style="margin-top:2px;">{brand} • {form} • {store}</div>
+                <div class="ibx-divider"></div>
+                <div style="font-weight:900; color:#0b1220;">Why this</div>
+                <div class="ibx-muted" style="margin-top:4px;">{reasons.get(pid, "Personalized to your audit")}</div>
+                """,
+                unsafe_allow_html=True
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
+
+def render_schedule(schedule: dict, products_df: pd.DataFrame):
+    prod_map = products_df.set_index("Product_ID").to_dict(orient="index") if "Product_ID" in products_df.columns else {}
+    blocks = [("AM", "Morning"), ("Training", "Training"), ("PM", "Evening")]
+    cols = st.columns(3, gap="large")
+
+    for i, (key, title) in enumerate(blocks):
+        with cols[i]:
+            st.markdown("<div class='ibx-card'>", unsafe_allow_html=True)
+            st.markdown(f"<div style='font-size:18px; font-weight:950; color:#0b1220;'>{title}</div>", unsafe_allow_html=True)
+            st.markdown("<div class='ibx-muted' style='margin-top:-2px;'>Recommended timing</div>", unsafe_allow_html=True)
+            st.markdown("<div class='ibx-divider'></div>", unsafe_allow_html=True)
+
+            items = schedule.get(key, []) if isinstance(schedule, dict) else []
+            if not items:
+                st.markdown("<div class='ibx-muted'>—</div>", unsafe_allow_html=True)
+            else:
+                for pid in items:
+                    p = prod_map.get(pid, {})
+                    st.markdown(f"- **{p.get('Ingredient', pid)}** — {p.get('Brand', '')}")
+            st.markdown("</div>", unsafe_allow_html=True)
 
 def render_privacy_policy():
     eff = date.today().strftime("%B %d, %Y")
@@ -465,7 +567,6 @@ def render_privacy_policy():
         unsafe_allow_html=True
     )
 
-
 def render_faq():
     st.markdown(
         """
@@ -474,11 +575,12 @@ def render_faq():
   <div class="ibx-divider"></div>
   <h3>Is this medical advice?</h3>
   <p class="ibx-muted">No. Consult a qualified professional for medical concerns.</p>
+  <h3>Basic vs Performance?</h3>
+  <p class="ibx-muted"><b>Basic</b> = essentials-only. <b>Performance</b> = expanded, conditional optimization.</p>
 </div>
 """,
         unsafe_allow_html=True
     )
-
 
 # =========================================================
 # FILE CHECKS + DATA
@@ -493,34 +595,26 @@ exclusions = load_exclusions()
 STRIPE_BASIC_LINK = st.secrets.get("STRIPE_BASIC_LINK", "")
 STRIPE_PERF_LINK = st.secrets.get("STRIPE_PERF_LINK", "")
 
-
 # =========================================================
-# THANK YOU / STRIPE RETURN HANDLER (PREMIUM)
+# STRIPE RETURN / THANK YOU PAGE
 # =========================================================
 success = qp_get("success")
 session_id = qp_get("session_id")
 
 if success == "true" and session_id:
     render_header()
-
-    st.markdown(
-        """
-        <div class="ibx-banner-success">✅ Payment confirmed — you’re all set.</div>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.markdown("<div class='ibx-banner-success'>✅ Payment confirmed — you’re all set.</div>", unsafe_allow_html=True)
 
     supa, supa_err = get_supabase()
     stp, stripe_err = get_stripe()
 
-    # Fetch Stripe session
     session_obj = None
     line_items = None
 
     if stp is None:
         st.markdown(
             f"<div class='ibx-card'><div class='ibx-banner-warn'>Stripe not connected: {stripe_err}</div>"
-            f"<div class='ibx-muted' style='margin-top:10px;'>Add STRIPE_SECRET_KEY to Secrets and `stripe` to requirements.txt to show customer + shipping + items here.</div></div>",
+            f"<div class='ibx-muted' style='margin-top:10px;'>Add STRIPE_SECRET_KEY + `stripe` package to show customer/shipping/items here.</div></div>",
             unsafe_allow_html=True
         )
     else:
@@ -530,19 +624,18 @@ if success == "true" and session_id:
                 expand=["line_items", "customer_details", "shipping_details"]
             )
             line_items = session_obj.get("line_items", {})
-        except Exception as e:
+        except Exception:
             st.markdown(
-                f"<div class='ibx-card'><div class='ibx-banner-warn'>Could not load Stripe session.</div>"
-                f"<div class='ibx-muted' style='margin-top:10px;'>Check that STRIPE_SECRET_KEY is the correct mode (test vs live).</div></div>",
+                "<div class='ibx-card'><div class='ibx-banner-warn'>Could not load Stripe session details.</div>"
+                "<div class='ibx-muted' style='margin-top:10px;'>Make sure STRIPE_SECRET_KEY matches test vs live mode.</div></div>",
                 unsafe_allow_html=True
             )
 
-    # Display premium confirmation content
     if session_obj:
         cust = session_obj.get("customer_details") or {}
         ship = session_obj.get("shipping_details") or {}
 
-        # Attempt to find audit id
+        # Try find audit id from custom fields / metadata
         audit_id = None
         try:
             custom_fields = session_obj.get("custom_fields") or []
@@ -557,20 +650,11 @@ if success == "true" and session_id:
             md = session_obj.get("metadata") or {}
             audit_id = md.get("ibex_audit_id")
 
-        # Guess plan
-        plan_guess = None
-        if line_items and line_items.get("data"):
-            desc = (line_items["data"][0].get("description") or "").lower()
-            if "performance" in desc:
-                plan_guess = "Performance"
-            elif "basic" in desc:
-                plan_guess = "Basic"
-
-        # Save order to Supabase
+        # Save order to Supabase (optional)
         if supa is None:
             st.markdown(
                 f"<div class='ibx-card'><div class='ibx-banner-warn'>Supabase not connected: {supa_err}</div>"
-                f"<div class='ibx-muted' style='margin-top:10px;'>Add `supabase` to requirements.txt and set SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY.</div></div>",
+                f"<div class='ibx-muted' style='margin-top:10px;'>Add `supabase` package + SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY to save orders.</div></div>",
                 unsafe_allow_html=True
             )
         else:
@@ -582,37 +666,28 @@ if success == "true" and session_id:
                     "stripe_customer_name": cust.get("name"),
                     "stripe_shipping": ship,
                     "stripe_line_items": line_items,
-                    "plan": plan_guess,
                     "audit_id": audit_id,
                     "raw_session": session_obj,
                 }).execute()
-
-                if audit_id:
-                    try:
-                        supa.table("audits").update({"status": "paid"}).eq("id", audit_id).execute()
-                    except Exception:
-                        pass
             except Exception:
                 st.markdown(
                     "<div class='ibx-card'><div class='ibx-banner-warn'>Could not save order to Supabase.</div>"
-                    "<div class='ibx-muted' style='margin-top:10px;'>Check your tables exist: audits + orders, and that you used the SERVICE ROLE key.</div></div>",
+                    "<div class='ibx-muted' style='margin-top:10px;'>Make sure you created an `orders` table.</div></div>",
                     unsafe_allow_html=True
                 )
 
-        # Premium confirmation layout
-        left, right = st.columns([1.2, 0.8], gap="large")
+        # Premium thank you layout
+        left, right = st.columns([1.25, 0.75], gap="large")
 
         with left:
             st.markdown("<div class='ibx-card'>", unsafe_allow_html=True)
             st.markdown("<div style='font-size:26px; font-weight:950; color:#0b1220;'>Thank you.</div>", unsafe_allow_html=True)
             st.markdown("<div class='ibx-muted' style='margin-top:6px;'>We received your order. Here’s what happens next.</div>", unsafe_allow_html=True)
             st.markdown("<div class='ibx-divider'></div>", unsafe_allow_html=True)
-
             st.markdown("**Next steps**")
             st.write("• You’ll receive a Stripe confirmation email.")
             st.write("• We’ll match your order to your audit using your IBEX Audit ID.")
             st.write("• You’ll get tracking when it ships.")
-
             st.markdown("<div class='ibx-divider'></div>", unsafe_allow_html=True)
 
             st.markdown("**Order details**")
@@ -635,39 +710,15 @@ if success == "true" and session_id:
             st.markdown("</div>", unsafe_allow_html=True)
 
         with right:
-            st.markdown("<div class='ibx-card'>", unsafe_allow_html=True)
-            st.markdown("<div style='font-size:18px; font-weight:950; color:#0b1220;'>Important</div>", unsafe_allow_html=True)
-            st.markdown("<div class='ibx-muted' style='margin-top:6px;'>Keep this ID. It links your payment to your personalized recommendations.</div>", unsafe_allow_html=True)
-
             if audit_id:
-                st.markdown(f"<div class='ibx-copy'>{audit_id}</div>", unsafe_allow_html=True)
-                st.markdown(
-                    f"""
-                    <div style="margin-top:12px; display:flex; justify-content:center;">
-                      <button onclick="navigator.clipboard.writeText('{audit_id}')" style="
-                        padding:10px 18px; border-radius:12px; background:#ef4444; color:white;
-                        font-weight:950; border:none; cursor:pointer;
-                      ">Copy Audit ID</button>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
+                audit_id_box(audit_id)
             else:
                 st.markdown(
-                    "<div class='ibx-banner-warn' style='margin-top:12px;'>No IBEX Audit ID found on this payment.</div>",
-                    unsafe_allow_html=True
-                )
-                st.markdown(
-                    "<div class='ibx-muted' style='margin-top:10px;'>Fix: in Stripe Payment Link → collect customer info → add required custom field named <b>IBEX Audit ID</b>.</div>",
+                    "<div class='ibx-card'><div class='ibx-banner-warn'>No IBEX Audit ID found on this payment.</div>"
+                    "<div class='ibx-muted' style='margin-top:10px;'>Fix: in your Stripe Payment Link, add a required Custom Field named <b>IBEX Audit ID</b>.</div></div>",
                     unsafe_allow_html=True
                 )
 
-            st.markdown("<div class='ibx-divider'></div>", unsafe_allow_html=True)
-            st.markdown("**Need help?**")
-            st.markdown("<div class='ibx-muted'>Email support@ibexperformance.com (replace with your email).</div>", unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-
-        st.markdown("<div style='margin-top:10px;'></div>", unsafe_allow_html=True)
         if st.button("Return to IBEX"):
             try:
                 st.query_params.clear()
@@ -675,27 +726,11 @@ if success == "true" and session_id:
                 pass
             st.rerun()
 
-    else:
-        # If stripe session didn't load, still show a clean page
-        st.markdown(
-            """
-            <div class="ibx-card">
-              <div style="font-size:24px; font-weight:950; color:#0b1220;">Thank you.</div>
-              <div class="ibx-muted" style="margin-top:6px;">
-                Your payment completed, but we couldn’t load the order details yet.
-              </div>
-              <div class="ibx-divider"></div>
-              <div class="ibx-muted">Fix the Stripe/Supabase warnings above, then refresh this page.</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
     st.stop()
 
 
 # =========================================================
-# MAIN APP (AUDIT)
+# MAIN APP
 # =========================================================
 if "ai_out" not in st.session_state:
     st.session_state.ai_out = None
@@ -707,43 +742,92 @@ if "last_rid" not in st.session_state:
 render_header()
 tabs = st.tabs(["Audit", "Privacy", "FAQ"])
 
+# =========================================================
+# TAB: AUDIT
+# =========================================================
 with tabs[0]:
-    st.markdown(
-        """
-        <div class="ibx-card">
-          <div style="font-size:28px; font-weight:950; color:#0b1220;">Performance Audit</div>
-          <div class="ibx-muted" style="margin-top:6px;">
-            Fill out the audit in the sidebar. Results appear instantly.
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    # Results panel
+    if st.session_state.ai_out:
+        ai_out = st.session_state.ai_out
+        plan = st.session_state.last_plan
+        rid = st.session_state.last_rid
 
-    if st.session_state.ai_out and st.session_state.last_rid:
-        audit_id_box(st.session_state.last_rid)
+        st.markdown(
+            f"""
+            <div class="ibx-card">
+              <div style="display:flex; justify-content:space-between; align-items:flex-end; gap:12px; flex-wrap:wrap;">
+                <div>
+                  <div style="font-size:28px; font-weight:950; color:#0b1220;">Your {plan} System</div>
+                  <div class="ibx-muted">Reference ID: {rid}</div>
+                </div>
+                <div>
+                  <span class="ibx-badge">Instant audit</span>
+                  <span class="ibx-badge">Plan-aware</span>
+                </div>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
-        st.markdown("<div class='ibx-card'>", unsafe_allow_html=True)
-        st.markdown(f"<div style='font-size:18px; font-weight:950; color:#0b1220;'>Checkout</div>", unsafe_allow_html=True)
-        st.markdown("<div class='ibx-muted' style='margin-top:6px;'>Copy your IBEX Audit ID above and paste it into Stripe during checkout.</div>", unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+        audit_id_box(rid)
 
-        if st.session_state.last_plan == "Basic":
+        if ai_out.get("consult_professional", False):
+            st.warning("Based on what you shared, consult a qualified professional. We kept this conservative.")
+        flags = ai_out.get("flags", [])
+        if flags:
+            st.caption("Signals detected: " + ", ".join(flags))
+
+        st.subheader("Recommended Stack")
+        render_products(ai_out.get("included_product_ids", []), products, ai_out.get("reasons", {}))
+
+        st.subheader("Schedule")
+        render_schedule(ai_out.get("schedule", {}), products)
+
+        st.subheader("Notes")
+        notes = ai_out.get("notes_for_athlete", [])
+        if notes:
+            st.markdown("<div class='ibx-card'>", unsafe_allow_html=True)
+            for n in notes:
+                st.write(f"• {n}")
+            st.markdown("</div>", unsafe_allow_html=True)
+        else:
+            st.info("No additional notes.")
+
+        st.subheader("Checkout")
+        st.markdown(
+            "<div class='ibx-card'><div class='ibx-muted'>Copy your IBEX Audit ID above and paste it into Stripe during checkout.</div></div>",
+            unsafe_allow_html=True
+        )
+
+        if plan == "Basic":
             if STRIPE_BASIC_LINK:
                 st.link_button("Subscribe — IBEX Basic", STRIPE_BASIC_LINK)
             else:
-                st.markdown("<div class='ibx-banner-warn'>Missing STRIPE_BASIC_LINK in Secrets.</div>", unsafe_allow_html=True)
+                st.markdown("<div class='ibx-banner-warn'>Set STRIPE_BASIC_LINK in Secrets.</div>", unsafe_allow_html=True)
         else:
             if STRIPE_PERF_LINK:
                 st.link_button("Subscribe — IBEX Performance", STRIPE_PERF_LINK)
             else:
-                st.markdown("<div class='ibx-banner-warn'>Missing STRIPE_PERF_LINK in Secrets.</div>", unsafe_allow_html=True)
+                st.markdown("<div class='ibx-banner-warn'>Set STRIPE_PERF_LINK in Secrets.</div>", unsafe_allow_html=True)
 
         if st.button("Start a new audit"):
             st.session_state.ai_out = None
             st.session_state.last_rid = None
             st.rerun()
 
+    else:
+        st.markdown(
+            """
+            <div class="ibx-card">
+              <div style="font-size:28px; font-weight:950; color:#0b1220;">Performance Audit</div>
+              <div class="ibx-muted" style="margin-top:6px;">Fill out the audit in the sidebar. Results appear instantly.</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    # Sidebar full form (RESTORED)
     with st.sidebar:
         st.markdown("## IBEX Audit")
         st.caption("Plan → Audit → Instant system.")
@@ -776,18 +860,31 @@ with tabs[0]:
             season_status = st.selectbox("Season status", ["In-season", "Pre-season", "Off-season"])
             training_days = st.slider("Training days/week", 0, 7, 5)
             intensity = st.slider("Training intensity (1–10)", 1, 10, 7)
+            travel = st.selectbox("Travel frequency", ["Never", "Sometimes", "Often"])
 
             st.markdown("### Goals")
             goals = st.multiselect(
                 "Select all that apply",
-                ["strength", "endurance", "recovery", "sleep", "gut", "joints", "focus", "general health"]
+                ["strength","endurance","recovery","sleep","gut","joints","focus","general health"]
             )
 
-            st.markdown("### Notes")
-            open_notes = st.text_area("Other context (optional)")
+            st.markdown("### Recovery & lifestyle")
+            sleep_hours = st.number_input("Sleep hours/night", min_value=0.0, max_value=12.0, value=7.0, step=0.5)
+            sleep_quality = st.slider("Sleep quality (1–10)", 1, 10, 6)
+            stress = st.slider("Stress (1–10)", 1, 10, 6)
+            soreness = st.slider("Soreness/Fatigue (1–10)", 1, 10, 6)
+            gi_sensitive = st.checkbox("GI sensitive / stomach issues", value=False)
+            caffeine_sensitive = st.checkbox("Caffeine sensitive", value=False)
+
+            st.markdown("### Current stack / notes")
+            current_supps = st.text_area("Supplements you already take (optional)", placeholder="Creatine, fish oil, whey…")
+            avoid_ingredients = st.text_input("Ingredients to avoid (optional)", placeholder="e.g., caffeine")
+            open_notes = st.text_area("Other context or concerns (optional)", placeholder="Anything that would help tailor the plan…")
 
             st.markdown("---")
+            st.caption("By continuing, you agree to the Privacy Policy (see Privacy tab).")
             consent = st.checkbox("I understand this is not medical advice.", value=False)
+
             submitted = st.form_submit_button("Build my system")
 
         if submitted:
@@ -807,18 +904,26 @@ with tabs[0]:
                 "season_status": season_status,
                 "training_days_per_week": training_days,
                 "intensity_1_to_10": intensity,
+                "travel_frequency": travel,
                 "goals": goals,
+                "sleep_hours": sleep_hours,
+                "sleep_quality_1_to_10": sleep_quality,
+                "stress_1_to_10": stress,
+                "soreness_1_to_10": soreness,
+                "gi_sensitive": gi_sensitive,
+                "caffeine_sensitive": caffeine_sensitive,
+                "current_supplements": current_supps,
+                "avoid_ingredients": avoid_ingredients,
                 "open_notes": open_notes
             }
 
-            # Keep this simple for now
-            shortlist = products.head(60)
+            shortlist = shortlist_products(products, goals, gi_sensitive, caffeine_sensitive, plan)
 
             with st.spinner("Generating your system…"):
                 ai_out = run_ai(intake, shortlist, exclusions, plan)
 
-            # Save audit to Supabase (clean warning if missing)
-            supa, supa_err = get_supabase()
+            # Save audit to Supabase if connected
+            supa, _ = get_supabase()
             if supa is not None:
                 try:
                     supa.table("audits").insert({
@@ -829,26 +934,25 @@ with tabs[0]:
                         "status": "created",
                     }).execute()
                 except Exception:
-                    st.markdown(
-                        "<div class='ibx-card'><div class='ibx-banner-warn'>Could not save audit to Supabase.</div></div>",
-                        unsafe_allow_html=True
-                    )
-            else:
-                st.markdown(
-                    f"<div class='ibx-card'><div class='ibx-banner-warn'>Supabase not connected: {supa_err}</div></div>",
-                    unsafe_allow_html=True
-                )
+                    pass
 
             st.session_state.ai_out = ai_out
             st.session_state.last_plan = plan
             st.session_state.last_rid = rid
             st.rerun()
 
+# =========================================================
+# TAB: PRIVACY
+# =========================================================
 with tabs[1]:
     render_privacy_policy()
 
+# =========================================================
+# TAB: FAQ
+# =========================================================
 with tabs[2]:
     render_faq()
+
 
 
 
