@@ -1,7 +1,6 @@
 import os
 import json
 import uuid
-import base64
 from datetime import date
 
 import pandas as pd
@@ -43,8 +42,7 @@ st.set_page_config(
 
 
 # =========================================================
-# PREMIUM STYLING (fix contrast + make it look expensive)
-# + FIX: inputs + dropdowns + multiselect + buttons text colors
+# PREMIUM STYLING (fix contrast + dropdowns + buttons)
 # =========================================================
 st.markdown(
     """
@@ -97,7 +95,6 @@ section[data-testid="stSidebar"] div,
 section[data-testid="stSidebar"] label{
   color: var(--sideText) !important;
 }
-
 section[data-testid="stSidebar"] a{ color:#93c5fd !important; }
 
 /* Reduce top whitespace */
@@ -209,7 +206,6 @@ section[data-testid="stSidebar"] .stNumberInput input{
   border:1px solid rgba(229,231,235,0.35) !important;
   border-radius: 14px !important;
 }
-
 section[data-testid="stSidebar"] .stTextInput input::placeholder,
 section[data-testid="stSidebar"] .stTextArea textarea::placeholder,
 section[data-testid="stSidebar"] .stNumberInput input::placeholder{
@@ -224,7 +220,7 @@ section[data-testid="stSidebar"] div[data-baseweb="select"] > div{
   border-radius: 14px !important;
 }
 section[data-testid="stSidebar"] div[data-baseweb="select"] *{
-  color: var(--text) !important; /* selected value + caret */
+  color: var(--text) !important;
 }
 
 /* Sidebar slider labels remain light */
@@ -242,13 +238,17 @@ section[data-testid="stSidebar"] .stSlider *{
   background: var(--accent) !important;
   border: none !important;
 }
+.stButton button,
 .stButton button *{
   color:#ffffff !important;
 }
 .stButton button:hover{ opacity: 0.92; }
 
 /* Link buttons (Stripe) */
-.stLinkButton a{
+div[data-testid="stLinkButton"] a{
+  display:inline-flex !important;
+  align-items:center !important;
+  justify-content:center !important;
   border-radius: 14px !important;
   padding: 0.78rem 1.05rem !important;
   font-weight: 900 !important;
@@ -256,12 +256,11 @@ section[data-testid="stSidebar"] .stSlider *{
   border: 1px solid rgba(17,24,39,0.15) !important;
   text-decoration: none !important;
 }
-.stLinkButton a,
-.stLinkButton a *{
+div[data-testid="stLinkButton"] a,
+div[data-testid="stLinkButton"] a *{
   color: #ffffff !important;
 }
-.stLinkButton a:hover{ opacity:0.92; }
-
+div[data-testid="stLinkButton"] a:hover{ opacity:0.92; }
 </style>
 """,
     unsafe_allow_html=True,
@@ -377,6 +376,57 @@ def render_header():
         )
 
 
+def render_audit_id_callout(rid: str):
+    # NOTE: uses a small HTML button for clipboard copy (works in modern browsers)
+    st.markdown(
+        f"""
+        <div class="ibx-card" style="border:2px solid #ef4444;">
+          <div style="font-size:20px; font-weight:950; color:#0f172a;">
+            ⚠️ Copy this: IBEX Audit ID
+          </div>
+          <div class="ibx-muted" style="margin-top:6px;">
+            You <strong>must paste this ID during checkout</strong> (field: <strong>IBEX Audit ID</strong>) so we can match your payment to your personalized system.
+          </div>
+
+          <div style="
+            margin-top:14px;
+            font-size:22px;
+            font-weight:950;
+            background:#f8fafc;
+            border:1px dashed #ef4444;
+            border-radius:12px;
+            padding:14px;
+            color:#0f172a;
+            text-align:center;
+            letter-spacing:0.6px;
+            user-select: all;
+          ">
+            {rid}
+          </div>
+
+          <div style="margin-top:12px; text-align:center;">
+            <button onclick="navigator.clipboard.writeText('{rid}')" style="
+              padding:10px 18px;
+              border-radius:12px;
+              background:#ef4444;
+              color:white;
+              font-weight:950;
+              border:none;
+              cursor:pointer;
+            ">
+              Copy Audit ID
+            </button>
+          </div>
+
+          <div class="ibx-muted" style="margin-top:10px; font-size:12px;">
+            Tip: if you’re on mobile, tap-and-hold the code to copy.
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 # =========================================================
 # THANK YOU / CONFIRMATION PAGE (Stripe redirect)
 # =========================================================
@@ -430,7 +480,7 @@ if success == "true" and session_id:
             border-radius:14px;
             background:#111827;
             color:white;
-            font-weight:900;
+            font-weight:950;
             text-decoration:none;
           ">
             Return to IBEX
@@ -445,7 +495,7 @@ if success == "true" and session_id:
 
 
 # =========================================================
-# PLAN DEFINITIONS (cleaner premium copy)
+# PLAN DEFINITIONS (premium copy)
 # =========================================================
 PLAN_COPY = {
     "Basic": {
@@ -741,6 +791,7 @@ with tabs[0]:
     if st.session_state.ai_out:
         ai_out = st.session_state.ai_out
         plan = st.session_state.last_plan
+        rid = st.session_state.last_rid
 
         st.markdown(
             f"""
@@ -748,7 +799,7 @@ with tabs[0]:
               <div style="display:flex; justify-content:space-between; align-items:flex-end; gap:12px; flex-wrap:wrap;">
                 <div>
                   <div style="font-size:28px; font-weight:950; color:#0f172a;">Your {plan} System</div>
-                  <div class="ibx-muted">Reference ID: {st.session_state.last_rid}</div>
+                  <div class="ibx-muted">Your personalized stack is ready.</div>
                 </div>
                 <div>
                   <span class="ibx-badge">Instant audit</span>
@@ -759,6 +810,9 @@ with tabs[0]:
             """,
             unsafe_allow_html=True
         )
+
+        # 🔥 Make Audit ID extremely obvious + copyable
+        render_audit_id_callout(rid)
 
         if ai_out.get("consult_professional", False):
             st.warning("Based on what you shared, consult a qualified professional. We kept this conservative.")
@@ -783,6 +837,8 @@ with tabs[0]:
             st.info("No additional notes.")
 
         st.subheader("Checkout")
+
+        st.info("Before you checkout: copy your **IBEX Audit ID** above and paste it into the required field on the Stripe checkout page.")
 
         if plan == "Basic":
             st.markdown("<div class='ibx-card'>", unsafe_allow_html=True)
@@ -935,15 +991,6 @@ with tabs[1]:
 with tabs[2]:
     render_faq()
 
-
-# =========================================================
-# Supabase note (do you need to do anything?)
-# =========================================================
-# You do NOT need Supabase for the app to run.
-# You ONLY need Supabase if you want to persist:
-# - who ordered (email/shipping)
-# - and what the AI recommended per person (rid)
-# Right now, Stripe Payment Links won't automatically store your AI output anywhere.
 
 
 
