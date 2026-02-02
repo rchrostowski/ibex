@@ -353,22 +353,24 @@ def stripe_retrieve_session(session_id: str):
         st.error("Missing STRIPE_SECRET_KEY in Streamlit Secrets.")
         return None
 
-    # Safe fingerprint so you can confirm Streamlit is using the key you set (no leaking full secret)
+    # Safe fingerprint so you can confirm Streamlit is using the key you set
     st.caption(f"Stripe key loaded: {key[:7]}…{key[-4:]} (len={len(key)})")
     st.caption(f"Session id: {session_id[:10]}…")
 
     stripe.api_key = key
 
     try:
+        # NOTE: shipping_details is NOT expandable; it's already included on the session
         sess = stripe.checkout.Session.retrieve(
             session_id,
-            expand=["customer", "subscription", "shipping_details", "line_items"],
+            expand=["customer", "subscription", "line_items"],
         )
         return sess
     except Exception as e:
         st.error("Stripe API call failed. Here is the real error:")
         st.exception(e)
         return None
+
 
 
 # =========================================================
