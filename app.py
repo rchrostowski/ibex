@@ -48,6 +48,10 @@ st.set_page_config(
 
 # =========================================================
 # PREMIUM STYLING
+# FIXES:
+#  - Dropdown menu options unreadable (BaseWeb menu portal)
+# CHANGES:
+#  - No checkbox gating UX changes here; that's in form logic below
 # =========================================================
 st.markdown(
     """
@@ -165,36 +169,53 @@ section[data-testid="stSidebar"] .stNumberInput input::placeholder{
   opacity: 1 !important;
 }
 
+/* Sidebar select container */
 section[data-testid="stSidebar"] [data-baseweb="select"] > div{
   background:#ffffff !important;
   border:1px solid rgba(229,231,235,0.35) !important;
   border-radius: 14px !important;
 }
 
+/* Selected value inside select */
 section[data-testid="stSidebar"] [data-baseweb="select"] *{
   color: var(--text) !important;
 }
 
+/* Caret icon */
 section[data-testid="stSidebar"] [data-baseweb="select"] svg{
   color: var(--text) !important;
 }
 
-div[data-baseweb="popover"] *{
-  color: var(--text) !important;
+/* =========================================================
+   FIX: Dropdown menu options unreadable
+   BaseWeb renders menu in a portal (popover/menu) OUTSIDE sidebar.
+   Force high-contrast text + white background for the menu.
+========================================================= */
+
+/* Popover container background */
+div[data-baseweb="popover"]{
+  background: transparent !important;
 }
+
+/* Menu panel */
 div[data-baseweb="menu"]{
   background:#ffffff !important;
-  border:1px solid rgba(15,23,42,0.10) !important;
+  border:1px solid rgba(15,23,42,0.12) !important;
   border-radius: 14px !important;
   overflow:hidden !important;
 }
-div[data-baseweb="menu"] [role="option"]{
-  background:#ffffff !important;
+
+/* Menu items text */
+div[data-baseweb="menu"] *{
+  color:#0f172a !important;     /* FORCE readable text */
 }
+
+/* Option hover */
 div[data-baseweb="menu"] [role="option"]:hover{
   background: rgba(15,23,42,0.06) !important;
 }
 
+/* Slider text */
 section[data-testid="stSidebar"] .stSlider *{
   color: var(--sideText) !important;
 }
@@ -203,8 +224,8 @@ section[data-testid="stSidebar"] [data-testid="stTickBarMax"]{
   color: var(--sideText) !important;
 }
 
-section[data-testid="stSidebar"] .stRadio label,
-section[data-testid="stSidebar"] .stCheckbox label{
+/* Radio text */
+section[data-testid="stSidebar"] .stRadio label{
   color: var(--sideText) !important;
 }
 </style>
@@ -245,7 +266,7 @@ def is_yes(val) -> bool:
     return str(val).strip().lower() in {"y","yes","true","1"}
 
 # =========================================================
-# NEW: Supabase client + save function
+# Supabase client + save function
 # =========================================================
 @st.cache_resource(show_spinner=False)
 def get_supabase():
@@ -263,14 +284,9 @@ def get_supabase():
     return create_client(url, key)
 
 def save_to_supabase(rid: str, intake: dict, ai_out: dict):
-    """
-    Saves immediately when the system is generated.
-    Stores: audit_id=rid, name/email, survey=intake, ai_result=ai_out
-    """
     sb = get_supabase()
-
     payload = {
-        "audit_id": rid,  # uuid string is fine
+        "audit_id": rid,
         "email": (intake.get("email") or "").strip() or None,
         "athlete_name": (intake.get("name") or "").strip() or None,
         "survey": intake,
@@ -279,15 +295,12 @@ def save_to_supabase(rid: str, intake: dict, ai_out: dict):
     }
 
     res = sb.table("recommendations").insert(payload).execute()
-
-    # IMPORTANT: surface errors instead of silently failing
     if hasattr(res, "error") and res.error:
-        raise RuntimeError(res.error)
-
+        raise RuntimeError(str(res.error))
     return res.data[0]["id"] if res.data else None
 
 # =========================================================
-# NEW: PREMIUM AUDIT ID CARD
+# PREMIUM AUDIT ID CARD
 # =========================================================
 def display_audit_id(rid: str):
     if not rid:
@@ -610,7 +623,6 @@ def render_schedule(schedule: dict, products_df: pd.DataFrame):
 def render_privacy_policy():
     eff = date.today().strftime("%B %d, %Y")
     support_email = st.secrets.get("SUPPORT_EMAIL", "support@ibexsupplements.com")
-
     st.markdown(
         f"""
 <div class="ibx-card">
@@ -639,6 +651,12 @@ def render_faq():
 # =========================================================
 # APP START
 # =========================================================
+def require_file(path: str, friendly: str):
+    if not os.path.exists(path):
+        st.error(f"Missing {friendly}: `{path}`")
+        st.info("Fix: upload the file to your GitHub repo in the correct folder, then reboot the app.")
+        st.stop()
+
 require_file(PRODUCTS_CSV, "products.csv (data/products.csv)")
 require_file(EXCLUSIONS_CSV, "exclusions.csv (data/exclusions.csv)")
 require_file(LOGO_PATH, "logo (assets/ibex_logo.png)")
@@ -805,16 +823,13 @@ with tabs[0]:
             open_notes = st.text_area("Other context or concerns (optional)", placeholder="Anything that would help tailor the plan…")
 
             st.markdown("---")
-            st.caption("By continuing, you agree to the Privacy Policy (see Privacy tab).")
-            consent = st.checkbox("I understand this is not medical advice.", value=False)
+
+            # ✅ CHANGE: remove checkbox gating (trust barrier)
+            st.caption("Not medical advice. For details, see the Privacy tab.")
 
             submitted = st.form_submit_button("Build my system")
 
         if submitted:
-            if not consent:
-                st.error("Please check the consent box to proceed.")
-                st.stop()
-
             rid = str(uuid.uuid4())
             intake = {
                 "rid": rid,
@@ -845,14 +860,13 @@ with tabs[0]:
             with st.spinner("Generating your system…"):
                 ai_out = run_ai(intake, shortlist, exclusions, plan)
 
-            # ✅ NEW: save to Supabase immediately on generation
+            # ✅ Keep DB save (but don't block results)
             try:
-                save_to_supabase(rid, intake, ai_out)
+                row_id = save_to_supabase(rid, intake, ai_out)
+                st.sidebar.success("Saved ✅")
             except Exception as e:
-                # show the actual error so we can fix instantly
-                st.error("Failed to save your recommendations to the database.")
-                st.code(str(e))
-                # don't stop; still show user their results
+                st.sidebar.error("Save failed (DB)")
+                st.sidebar.code(str(e))
 
             st.session_state.ai_out = ai_out
             st.session_state.last_plan = plan
@@ -870,6 +884,7 @@ with tabs[1]:
 # =========================================================
 with tabs[2]:
     render_faq()
+
 
 
 
