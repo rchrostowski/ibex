@@ -321,6 +321,17 @@ def is_yes(val) -> bool:
     return str(val).strip().lower() in {"y", "yes", "true", "1"}
 
 
+def parse_money(val) -> float:
+    try:
+        s = str(val).strip()
+        if not s:
+            return 0.0
+        s = s.replace("$", "").replace(",", "")
+        return float(s)
+    except Exception:
+        return 0.0
+
+
 # =========================================================
 # Supabase client + save function
 # =========================================================
@@ -368,6 +379,53 @@ def get_evidence_link(row: dict) -> str:
 
 def evidence_enabled() -> bool:
     return str(st.secrets.get("EVIDENCE_LINKS_ENABLED", "true")).strip().lower() in {"1", "true", "yes", "y"}
+
+
+# =========================================================
+# PLAN DEFINITIONS + PROFIT-PROTECTED LIMITS
+# =========================================================
+PLAN_COPY = {
+    "Basic": {
+        "headline": "Foundations, done right.",
+        "sub": "A clean, conservative system built from the essentials. Minimal complexity. Maximum consistency.",
+        "bullets": [
+            "Core performance stack only (the “boring” stuff that actually works)",
+            "Prefers NSF Certified for Sport / third-party tested when available",
+            "Designed for consistency, budgeting, and simplicity",
+        ],
+        "note": "Best for: most college athletes who want a safe, no-BS baseline.",
+    },
+    "Performance": {
+        "headline": "Optimization mode.",
+        "sub": "A deeper system with expanded options and conditional additions based on your audit.",
+        "bullets": [
+            "Expanded catalog (advanced recovery, sleep, gut, joint support as needed)",
+            "More conditional logic: your schedule + training load + sensitivities",
+            "Built for athletes chasing marginal gains (without sketchy stuff)",
+        ],
+        "note": "Best for: high volume training, in-season stress, or athletes who want every edge.",
+    },
+}
+
+# These are "foundation" categories you generally want to prioritize when capping
+BASIC_CORE_CATEGORIES = {
+    "Creatine", "Omega-3", "Magnesium", "Vitamin D", "Electrolytes", "Protein",
+    "Multivitamin", "Zinc", "Vitamin C", "Probiotic", "Fiber", "Collagen", "Tart Cherry"
+}
+
+# Profit-protected constraints:
+# - cap number of items
+# - cap monthly supplement budget (based on Est_Monthly_Cost column)
+# - cap schedule bucket sizes (keeps it practical)
+# - items with Est_Monthly_Cost >= $20 count as 2 units
+PLAN_LIMITS = {
+    "Basic": {"max_units": 5, "supp_budget": 39.0, "max_am": 3, "max_pm": 2, "max_training": 2},
+    "Performance": {"max_units": 8, "supp_budget": 69.0, "max_am": 3, "max_pm": 3, "max_training": 2},
+}
+
+
+def item_units(monthly_cost: float) -> int:
+    return 2 if monthly_cost >= 20.0 else 1
 
 
 # =========================================================
@@ -523,37 +581,8 @@ def load_exclusions():
 
 
 # =========================================================
-# PLAN DEFINITIONS
+# FILTERS
 # =========================================================
-PLAN_COPY = {
-    "Basic": {
-        "headline": "Foundations, done right.",
-        "sub": "A clean, conservative system built from the essentials. Minimal complexity. Maximum consistency.",
-        "bullets": [
-            "Core performance stack only (the “boring” stuff that actually works)",
-            "Prefers NSF Certified for Sport / third-party tested when available",
-            "Designed for consistency, budgeting, and simplicity",
-        ],
-        "note": "Best for: most college athletes who want a safe, no-BS baseline.",
-    },
-    "Performance": {
-        "headline": "Optimization mode.",
-        "sub": "A deeper system with expanded options and conditional additions based on your audit.",
-        "bullets": [
-            "Expanded catalog (advanced recovery, sleep, gut, joint support as needed)",
-            "More conditional logic: your schedule + training load + sensitivities",
-            "Built for athletes chasing marginal gains (without sketchy stuff)",
-        ],
-        "note": "Best for: high volume training, in-season stress, or athletes who want every edge.",
-    },
-}
-
-BASIC_CORE_CATEGORIES = {
-    "Creatine", "Omega-3", "Magnesium", "Vitamin D", "Electrolytes", "Protein",
-    "Multivitamin", "Zinc", "Vitamin C", "Probiotic", "Fiber", "Collagen", "Tart Cherry"
-}
-
-
 def filter_products_by_plan(products: pd.DataFrame, plan: str) -> pd.DataFrame:
     p = products.copy()
     p["Category_norm"] = p["Category"].astype(str).str.strip()
@@ -617,7 +646,8 @@ def run_ai(intake: dict, products_shortlist: pd.DataFrame, exclusions: pd.DataFr
         "Product_ID", "Category", "Ingredient", "Brand", "Store", "Link",
         "Evidence_Link",
         "Serving_Form", "Typical_Use", "Timing", "Avoid_If",
-        "Third_Party_Tested", "NSF_Certified", "Notes"
+        "Third_Party_Tested", "NSF_Certified", "Notes",
+        "Est_Monthly_Cost"
     ]].to_dict(orient="records")
 
     output_schema = {
@@ -637,6 +667,8 @@ def run_ai(intake: dict, products_shortlist: pd.DataFrame, exclusions: pd.DataFr
         "Plan: PERFORMANCE. Expanded optimization. You may add conditional advanced items if clearly supported by intake. Still conservative on risk."
     )
 
+    lim = PLAN_LIMITS.get(plan, {"max_units": 6, "supp_budget": 50.0, "max_am": 3, "max_pm": 3, "max_training": 2})
+
     system_prompt = (
         "You are IBEX, an assistant that organizes a personalized supplement system for athletes. "
         "You are NOT a medical provider. Do NOT diagnose, treat, or make medical claims. "
@@ -646,6 +678,11 @@ def run_ai(intake: dict, products_shortlist: pd.DataFrame, exclusions: pd.DataFr
         "Do NOT invent papers, DOIs, authors, or citations. If evidence is missing, do not pretend it exists. "
         "If intake mentions serious symptoms, medications, or a medical condition, set consult_professional=true and keep recommendations conservative. "
         f"{plan_rules} "
+        "PROFIT-PROTECTED LIMITS (must follow): "
+        f"Total included items must fit within a monthly supplement budget of ${lim['supp_budget']:.0f} (based on Est_Monthly_Cost). "
+        f"Also cap the stack to {lim['max_units']} units max, where any item with Est_Monthly_Cost >= $20 counts as 2 units. "
+        f"Schedule caps: AM ≤ {lim['max_am']}, PM ≤ {lim['max_pm']}, Training ≤ {lim['max_training']}. "
+        "If more items could help, include them as optional suggestions in notes_for_athlete instead of adding them to included_product_ids. "
         "Return ONLY valid JSON matching output_format schema."
     )
 
@@ -677,6 +714,124 @@ def run_ai(intake: dict, products_shortlist: pd.DataFrame, exclusions: pd.DataFr
         if start != -1 and end != -1 and end > start:
             return json.loads(content[start:end + 1])
         raise
+
+
+# =========================================================
+# ENFORCE PROFIT CAPS (HARD) — last line of defense
+# =========================================================
+def enforce_caps(ai_out: dict, plan: str, products_df: pd.DataFrame) -> dict:
+    lim = PLAN_LIMITS.get(plan, {"max_units": 6, "supp_budget": 50.0, "max_am": 3, "max_pm": 3, "max_training": 2})
+
+    included = ai_out.get("included_product_ids", []) or []
+    schedule = ai_out.get("schedule", {}) or {}
+    reasons = ai_out.get("reasons", {}) or {}
+    notes = ai_out.get("notes_for_athlete", []) or []
+
+    if not included:
+        return ai_out
+
+    prod_map = products_df.set_index("Product_ID").to_dict(orient="index")
+    model_order = {pid: i for i, pid in enumerate(included)}
+
+    rows = []
+    for pid in included:
+        p = prod_map.get(pid, {})
+        cat = str(p.get("Category", "") or "").strip()
+        est = parse_money(p.get("Est_Monthly_Cost", 0))
+        nsf = is_yes(p.get("NSF_Certified", ""))
+        tpt = str(p.get("Third_Party_Tested", "")).strip().lower() in {"y", "yes", "true", "1", "unknown"}
+        core = cat in BASIC_CORE_CATEGORIES
+        rows.append({
+            "pid": pid,
+            "cat": cat,
+            "est": est,
+            "nsf": nsf,
+            "tpt": tpt,
+            "core": core,
+            "order": model_order.get(pid, 9999)
+        })
+
+    # Priority sort:
+    # - core categories first
+    # - then nsf/tpt
+    # - then keep the model's original order
+    rows.sort(key=lambda r: (not r["core"], not r["nsf"], not r["tpt"], r["order"]))
+
+    picked = []
+    total_cost = 0.0
+    used_units = 0
+
+    for r in rows:
+        cost = float(r["est"] or 0.0)
+        units = item_units(cost)
+        if used_units + units > lim["max_units"]:
+            continue
+        if total_cost + cost > lim["supp_budget"]:
+            continue
+
+        picked.append(r["pid"])
+        total_cost += cost
+        used_units += units
+
+    # If nothing fits due to missing costs, fall back to a simple unit cap using ordering
+    if not picked:
+        for r in rows:
+            cost = float(r["est"] or 0.0)
+            units = item_units(cost)
+            if used_units + units > lim["max_units"]:
+                continue
+            picked.append(r["pid"])
+            used_units += units
+            if used_units >= lim["max_units"]:
+                break
+
+    picked_set = set(picked)
+
+    # Trim schedule buckets to picked items and per-bucket caps
+    def trim_bucket(items, maxn):
+        out = []
+        for pid in (items or []):
+            if pid in picked_set and pid not in out:
+                out.append(pid)
+            if len(out) >= maxn:
+                break
+        return out
+
+    new_schedule = {}
+    new_schedule["AM"] = trim_bucket(schedule.get("AM", []), lim["max_am"])
+    new_schedule["PM"] = trim_bucket(schedule.get("PM", []), lim["max_pm"])
+    new_schedule["Training"] = trim_bucket(schedule.get("Training", []), lim["max_training"])
+
+    # Ensure schedule items are subset of picked
+    sched_set = set(new_schedule["AM"] + new_schedule["PM"] + new_schedule["Training"])
+    # If schedule lost some picked items, keep them still in included list (that’s okay).
+    # But if schedule accidentally has items not in picked, already removed.
+
+    # Reasons only for picked
+    new_reasons = {pid: reasons.get(pid, "") for pid in picked if pid in reasons}
+
+    # Add a helpful note if we cut items
+    if len(picked) < len(included):
+        msg = (
+            f"To keep the stack practical and within your plan budget, we capped your recommendations "
+            f"to ~${lim['supp_budget']:.0f}/mo and {lim['max_units']} units."
+        )
+        if msg not in notes:
+            notes = [msg] + notes
+
+    ai_out["included_product_ids"] = picked
+    ai_out["schedule"] = new_schedule
+    ai_out["reasons"] = new_reasons
+    ai_out["notes_for_athlete"] = notes
+    ai_out["meta_caps"] = {
+        "plan": plan,
+        "supp_budget": lim["supp_budget"],
+        "max_units": lim["max_units"],
+        "estimated_monthly_cost_selected": round(total_cost, 2),
+        "units_selected": used_units,
+    }
+
+    return ai_out
 
 
 # =========================================================
@@ -955,6 +1110,20 @@ def render_faq():
         <details>
           <summary>
             <div>
+              Why are recommendations capped?
+              <div class="qhint">Practical + budgeted stack</div>
+            </div>
+            <div class="chev">⌄</div>
+          </summary>
+          <div class="answer">
+            IBEX caps recommendations to keep your stack realistic (and affordable to ship).
+            Plans have a monthly supplement budget and a hard item cap. If more could help, IBEX lists them as optional in notes.
+          </div>
+        </details>
+
+        <details>
+          <summary>
+            <div>
               How do I delete my data?
               <div class="qhint">Email support with your Audit ID</div>
             </div>
@@ -1110,6 +1279,14 @@ with tabs[0]:
         if flags:
             st.caption("Signals detected: " + ", ".join(flags))
 
+        # Optional: show budget meta (safe + transparent)
+        meta = ai_out.get("meta_caps", {})
+        if meta:
+            st.caption(
+                f"Plan caps applied: budget ~${meta.get('supp_budget')} / mo • "
+                f"selected est. ${meta.get('estimated_monthly_cost_selected')} / mo"
+            )
+
         st.subheader("Recommended Stack")
         render_products(ai_out.get("included_product_ids", []), products, ai_out.get("reasons", {}))
 
@@ -1186,6 +1363,11 @@ with tabs[0]:
             st.write(f"• {b}")
         st.caption(pc["note"])
 
+        # Transparency (optional)
+        lim = PLAN_LIMITS.get(plan, {})
+        if lim:
+            st.caption(f"Plan cap: ~${lim['supp_budget']:.0f}/mo supplement budget • {lim['max_units']} units max")
+
         st.markdown("---")
 
         with st.form("audit_form"):
@@ -1256,6 +1438,9 @@ with tabs[0]:
             with st.spinner("Generating your system…"):
                 ai_out = run_ai(intake, shortlist, exclusions, plan)
 
+            # HARD CAP ENFORCEMENT (prevents money-losing giant stacks)
+            ai_out = enforce_caps(ai_out, plan, products)
+
             try:
                 _ = save_to_supabase(rid, intake, ai_out)
                 st.sidebar.success("Saved ✅")
@@ -1319,6 +1504,7 @@ with tabs[2]:
 # =========================================================
 with tabs[3]:
     render_faq()
+
 
 
 
