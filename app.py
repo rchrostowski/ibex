@@ -212,6 +212,74 @@ section[data-testid="stSidebar"] [data-testid="stTickBarMax"]{
 section[data-testid="stSidebar"] .stRadio label{
   color: var(--sideText) !important;
 }
+
+/* =========================
+   FAQ Accordion
+========================= */
+.ibx-faq details{
+  background:#ffffff;
+  border:1px solid rgba(15,23,42,0.10);
+  border-radius:16px;
+  padding: 14px 16px;
+  margin: 10px 0;
+  box-shadow: 0 10px 24px rgba(2,6,23,0.06);
+}
+.ibx-faq details[open]{
+  border-color: rgba(239,68,68,0.35);
+  box-shadow: 0 14px 30px rgba(239,68,68,0.10);
+}
+.ibx-faq summary{
+  list-style:none;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  font-weight:900;
+  color:#0f172a;
+  font-size:16px;
+  outline:none;
+}
+.ibx-faq summary::-webkit-details-marker{ display:none; }
+.ibx-faq .qhint{
+  color:#64748b;
+  font-weight:700;
+  font-size:12px;
+  margin-top: 2px;
+}
+.ibx-faq .answer{
+  margin-top: 12px;
+  color:#334155;
+  line-height:1.65;
+  font-size:15px;
+}
+.ibx-faq .answer ul{ margin: 8px 0 0 18px; }
+.ibx-faq .chev{
+  width:34px;
+  height:34px;
+  border-radius:12px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background: rgba(15,23,42,0.04);
+  border: 1px solid rgba(15,23,42,0.08);
+  flex: 0 0 auto;
+}
+.ibx-faq details[open] .chev{
+  background: rgba(239,68,68,0.08);
+  border-color: rgba(239,68,68,0.18);
+}
+.ibx-faq .pill{
+  display:inline-block;
+  padding: 6px 10px;
+  border-radius:999px;
+  background: rgba(15,23,42,0.04);
+  border:1px solid rgba(15,23,42,0.08);
+  color:#334155;
+  font-size:12px;
+  font-weight:800;
+  margin-right:8px;
+}
 </style>
 """,
     unsafe_allow_html=True,
@@ -290,8 +358,6 @@ def save_to_supabase(rid: str, intake: dict, ai_out: dict):
 
 # =========================================================
 # Evidence link (paper-per-product)
-# - Add optional column to products.csv: Evidence_Link
-# - If missing, we fall back to Link
 # =========================================================
 def get_evidence_link(row: dict) -> str:
     ev = str(row.get("Evidence_Link", "") or "").strip()
@@ -497,12 +563,6 @@ def filter_products_by_plan(products: pd.DataFrame, plan: str) -> pd.DataFrame:
 
 
 def filter_ncaa_safe(products: pd.DataFrame, plan: str) -> pd.DataFrame:
-    """
-    Enforce NCAA-oriented catalog controls if present:
-    - Athlete_Safe_OK == "Y"
-    - Basic: NCAA_Risk_Tier == "Green"
-    - Performance: allow Green (and optionally Yellow)
-    """
     p = products.copy()
 
     if "Athlete_Safe_OK" in p.columns:
@@ -511,7 +571,7 @@ def filter_ncaa_safe(products: pd.DataFrame, plan: str) -> pd.DataFrame:
     if "NCAA_Risk_Tier" in p.columns:
         tier = p["NCAA_Risk_Tier"].astype(str).str.strip().str.lower()
         if plan == "Basic":
-            p = p[tier.eq("green") | tier.eq("")]  # allow blank for older CSVs
+            p = p[tier.eq("green") | tier.eq("")]
         else:
             p = p[tier.isin({"green", "yellow"}) | tier.eq("")]
 
@@ -519,9 +579,7 @@ def filter_ncaa_safe(products: pd.DataFrame, plan: str) -> pd.DataFrame:
 
 
 def shortlist_products(products: pd.DataFrame, goals: list[str], gi_sensitive: bool, caffeine_sensitive: bool, plan: str) -> pd.DataFrame:
-    # NCAA-safe filter first (if columns exist)
     products = filter_ncaa_safe(products, plan)
-
     p = filter_products_by_plan(products, plan)
 
     if goals:
@@ -551,7 +609,6 @@ def shortlist_products(products: pd.DataFrame, goals: list[str], gi_sensitive: b
 
 # =========================================================
 # AI
-# - No random papers: evidence comes from products.csv Evidence_Link (or Link fallback)
 # =========================================================
 def run_ai(intake: dict, products_shortlist: pd.DataFrame, exclusions: pd.DataFrame, plan: str) -> dict:
     client = get_openai_client()
@@ -704,168 +761,228 @@ def render_privacy_policy():
     eff = date.today().strftime("%B %d, %Y")
     support_email = st.secrets.get("SUPPORT_EMAIL", "support@ibexsupplements.com")
 
-    st.markdown(
-        f"""
-<div class="ibx-card">
-  <div style="font-size:30px; font-weight:950; color:#0f172a;">Privacy Policy</div>
-  <div class="ibx-muted" style="margin-top:6px;">Effective: {eff}</div>
-  <div class="ibx-divider"></div>
+    html = f"""
+    <div class="ibx-card">
+      <div style="font-size:30px; font-weight:950; color:#0f172a;">Privacy Policy</div>
+      <div class="ibx-muted" style="margin-top:6px;">Effective: {eff}</div>
+      <div class="ibx-divider"></div>
 
-  <div style="font-size:16px; line-height:1.65;">
-    <p><b>IBEX</b> (“we,” “us,” or “our”) provides a performance audit and supplement planning experience for athletes.
-    This Privacy Policy explains what we collect, why we collect it, how it is used, and the choices you have.</p>
+      <div style="font-size:16px; line-height:1.7; color:#334155;">
+        <p><b>IBEX</b> (“we,” “us,” or “our”) provides a performance audit and supplement planning experience for athletes.
+        This Privacy Policy explains what we collect, why we collect it, how it is used, and the choices you have.</p>
 
-    <h3 style="margin-top:18px;">1) What we collect</h3>
-    <p>When you use the IBEX Audit, you may provide:</p>
-    <ul>
-      <li><b>Contact info</b>: name and email (optional fields may be left blank).</li>
-      <li><b>Training & lifestyle inputs</b>: sport, season status, training frequency, goals, sleep, stress, soreness, sensitivities, and notes you enter.</li>
-      <li><b>App usage data</b>: basic logs needed to operate the service (e.g., timestamps, audit reference ID, and error logs).</li>
-    </ul>
-    <p><b>We do not ask for medical records</b>, and we do not need your diagnosis history. If you choose to type health details into a free-text box, that information may be stored as part of your audit.</p>
+        <h3 style="margin-top:18px;">1) What we collect</h3>
+        <ul>
+          <li><b>Contact info</b>: name and email (optional fields may be left blank).</li>
+          <li><b>Training & lifestyle inputs</b>: sport, season status, training frequency, goals, sleep, stress, soreness, sensitivities, and notes you enter.</li>
+          <li><b>App usage data</b>: audit reference ID, timestamps, and diagnostic logs needed to operate the service.</li>
+        </ul>
 
-    <h3 style="margin-top:18px;">2) What we do <i>not</i> collect</h3>
-    <ul>
-      <li>We do not require your student ID, team ID, or athletic department login.</li>
-      <li>We do not intentionally collect sensitive identifiers like Social Security numbers.</li>
-      <li>We do not sell personal information.</li>
-    </ul>
+        <h3 style="margin-top:18px;">2) What we do not collect</h3>
+        <ul>
+          <li>We do not require student/team IDs, department logins, or social security numbers.</li>
+          <li>We do not sell personal information.</li>
+        </ul>
 
-    <h3 style="margin-top:18px;">3) How we use your information</h3>
-    <p>We use your inputs to:</p>
-    <ul>
-      <li>Generate your recommended supplement system and schedule.</li>
-      <li>Show evidence links that are attached per item in our catalog (if available).</li>
-      <li>Enable the “Ask IBEX” chat to answer questions using your audit context.</li>
-      <li>Improve product quality, reliability, and safety controls (aggregate analysis, not “targeting”).</li>
-    </ul>
+        <h3 style="margin-top:18px;">3) How we use your information</h3>
+        <ul>
+          <li>Generate your recommended system and timing schedule.</li>
+          <li>Power the “Ask IBEX” chat using your audit + recommended items as context.</li>
+          <li>Display evidence links only when attached per product in our catalog.</li>
+          <li>Improve reliability and safety controls (aggregate analysis, not ad targeting).</li>
+        </ul>
 
-    <h3 style="margin-top:18px;">4) AI & model processing</h3>
-    <p>IBEX uses AI to generate your plan. Your audit inputs and a curated list of allowed catalog items may be sent to an AI provider for processing.
-    We instruct the model to:</p>
-    <ul>
-      <li>Return structured output only.</li>
-      <li>Avoid medical diagnosis or treatment advice.</li>
-      <li>Use only the products provided in the allowed catalog for your session.</li>
-      <li><b>Not invent research citations</b>. Evidence is only shown when it exists in the catalog row.</li>
-    </ul>
-    <p><b>Important:</b> AI can make mistakes. Always use your own judgment and consult a qualified professional if you have medical concerns.</p>
+        <h3 style="margin-top:18px;">4) AI processing</h3>
+        <p>Your audit inputs and a curated list of allowed catalog items may be sent to an AI provider to generate structured output.
+        We instruct the model to avoid medical diagnosis/treatment and to <b>not invent research citations</b>.
+        If evidence is missing for an item, we do not pretend it exists.</p>
 
-    <h3 style="margin-top:18px;">5) NCAA / sport compliance notice</h3>
-    <p>IBEX is designed to be athlete-safe oriented, but <b>no supplement can be guaranteed “safe” or “approved”</b> for any league.
-    Rules change, and contamination can occur even with good brands.</p>
-    <ul>
-      <li>We recommend third-party tested products when available.</li>
-      <li>You are responsible for checking with your athletic department and following your sport’s rules.</li>
-    </ul>
+        <h3 style="margin-top:18px;">5) NCAA / sport compliance notice</h3>
+        <p>IBEX is athlete-safe oriented, but <b>no supplement can be guaranteed compliant</b> for any league or test.
+        Rules change and contamination can occur. Always confirm with your athletic department.</p>
 
-    <h3 style="margin-top:18px;">6) Where data is stored</h3>
-    <p>Audit records may be stored in a secure database (e.g., our cloud database). Records may include your audit inputs, outputs, and reference ID.</p>
+        <h3 style="margin-top:18px;">6) Where data is stored</h3>
+        <p>Audit records may be stored in a secure database and may include your inputs, outputs, and reference ID.</p>
 
-    <h3 style="margin-top:18px;">7) Sharing & disclosure</h3>
-    <p>We share information only as needed to run the service:</p>
-    <ul>
-      <li><b>Service providers</b>: hosting, database, analytics, and AI processing providers.</li>
-      <li><b>Legal</b>: if required by law or to protect users and the service.</li>
-    </ul>
-    <p>We do not sell your personal information.</p>
+        <h3 style="margin-top:18px;">7) Sharing</h3>
+        <ul>
+          <li><b>Service providers</b>: hosting, database, and AI processing providers as needed to run IBEX.</li>
+          <li><b>Legal</b>: if required by law or to protect users and the service.</li>
+        </ul>
 
-    <h3 style="margin-top:18px;">8) Data retention</h3>
-    <p>We retain audit data as long as needed to provide the service, improve safety, and maintain records.
-    You can request deletion (see Section 10).</p>
+        <h3 style="margin-top:18px;">8) Retention</h3>
+        <p>We retain audit data as long as needed to provide the service and improve safety.
+        You can request deletion (see Section 10).</p>
 
-    <h3 style="margin-top:18px;">9) Security</h3>
-    <p>We use reasonable safeguards (access controls, encryption in transit where supported, and restricted service keys) to protect data.
-    No method is 100% secure, but we work to minimize risk.</p>
+        <h3 style="margin-top:18px;">9) Security</h3>
+        <p>We use reasonable safeguards (access controls and encryption in transit where supported). No method is 100% secure.</p>
 
-    <h3 style="margin-top:18px;">10) Your choices (access / delete)</h3>
-    <p>You can request access to or deletion of your stored audit by emailing <b>{support_email}</b> with your IBEX Audit ID.
-    If you don’t have your Audit ID, include the email you used (if provided) and the approximate date/time.</p>
+        <h3 style="margin-top:18px;">10) Your choices (access / delete)</h3>
+        <p>To request access to or deletion of your audit data, email <b>{support_email}</b> with your IBEX Audit ID.
+        If you don’t have it, include the email you used (if provided) and approximate date/time.</p>
 
-    <h3 style="margin-top:18px;">11) Children</h3>
-    <p>IBEX is intended for users who can legally consent to data processing in their jurisdiction. If you are under the age of consent,
-    use IBEX only with a parent/guardian’s permission.</p>
+        <h3 style="margin-top:18px;">11) Children</h3>
+        <p>IBEX is intended for users who can legally consent to data processing in their jurisdiction.</p>
 
-    <h3 style="margin-top:18px;">12) Changes</h3>
-    <p>We may update this policy. The “Effective” date above reflects the latest revision.</p>
+        <h3 style="margin-top:18px;">12) Changes</h3>
+        <p>We may update this policy. The effective date above reflects the latest revision.</p>
 
-    <h3 style="margin-top:18px;">Contact</h3>
-    <p>Email: <b>{support_email}</b></p>
-  </div>
-</div>
-""",
-        unsafe_allow_html=True,
-    )
+        <h3 style="margin-top:18px;">Contact</h3>
+        <p>Email: <b>{support_email}</b></p>
+      </div>
+    </div>
+    """
+    st.markdown(html, unsafe_allow_html=True)
 
 
 # =========================================================
-# FAQ (FULL)
+# FAQ (PRETTY ACCORDION)
 # =========================================================
 def render_faq():
     support_email = st.secrets.get("SUPPORT_EMAIL", "support@ibexsupplements.com")
-    st.markdown(
-        f"""
-<div class="ibx-card">
-  <div style="font-size:30px; font-weight:950; color:#0f172a;">FAQ</div>
-  <div class="ibx-divider"></div>
 
-  <div style="font-size:16px; line-height:1.65;">
-    <h3>What is IBEX?</h3>
-    <p>IBEX is a performance audit that helps athletes build a simple supplement system and timing schedule.
-    You answer questions about training, recovery, and goals. IBEX produces a plan using only items from a curated catalog.</p>
+    html = f"""
+    <div class="ibx-card">
+      <div style="font-size:30px; font-weight:950; color:#0f172a;">FAQ</div>
+      <div class="ibx-muted" style="margin-top:6px;">Answers for athletes — simple, direct, and transparent.</div>
+      <div class="ibx-divider"></div>
 
-    <h3>Is IBEX medical advice?</h3>
-    <p>No. IBEX is not a medical provider and does not diagnose or treat conditions.
-    If you have symptoms, take medications, or have a medical condition, you should consult a qualified professional.</p>
+      <div class="ibx-faq">
 
-    <h3>How does IBEX choose supplements?</h3>
-    <p>IBEX uses your audit inputs and matches them to items in the catalog. The AI is constrained to only pick from the approved list
-    shown behind the scenes for your session.</p>
+        <details open>
+          <summary>
+            <div>
+              What is IBEX?
+              <div class="qhint">Audit → system → schedule</div>
+            </div>
+            <div class="chev">⌄</div>
+          </summary>
+          <div class="answer">
+            IBEX is a performance audit that helps athletes build a simple supplement system and timing schedule.
+            You answer questions about training, recovery, and goals, and IBEX generates a plan using only items from a curated catalog.
+          </div>
+        </details>
 
-    <h3>Why do you show “Evidence” links?</h3>
-    <p>Trust barrier. Athletes want to see what a recommendation is based on. IBEX only shows evidence links that are attached per product in the catalog.
-    If an item has no link, we say so—no made-up citations.</p>
+        <details>
+          <summary>
+            <div>
+              Is IBEX medical advice?
+              <div class="qhint">No diagnosis, no treatment</div>
+            </div>
+            <div class="chev">⌄</div>
+          </summary>
+          <div class="answer">
+            No. IBEX is not a medical provider and does not diagnose or treat conditions.
+            If you have symptoms, take medications, or have a medical condition, consult a qualified professional.
+          </div>
+        </details>
 
-    <h3>Can I ask questions about my plan?</h3>
-    <p>Yes. Use the <b>Ask IBEX</b> tab to ask questions about timing, stacking, tradeoffs, and travel routines.
-    IBEX chat uses your audit + your recommended items as context.</p>
+        <details>
+          <summary>
+            <div>
+              How does IBEX choose supplements?
+              <div class="qhint">AI constrained to your allowed list</div>
+            </div>
+            <div class="chev">⌄</div>
+          </summary>
+          <div class="answer">
+            IBEX uses your audit inputs and matches them to items in the catalog.
+            The AI is constrained to choose only from the approved products provided for your session.
+          </div>
+        </details>
 
-    <h3>Do you show brands or stores?</h3>
-    <p>By default, IBEX does <b>not</b> show brands or retailers in the athlete-facing recommendation cards.
-    The focus is the ingredient, form, timing, and reason. (Brands can still exist in your internal catalog.)</p>
+        <details>
+          <summary>
+            <div>
+              Why do you show “Evidence” links?
+              <div class="qhint">Trust barrier → show sources only when they exist</div>
+            </div>
+            <div class="chev">⌄</div>
+          </summary>
+          <div class="answer">
+            Athletes are smart — and trust matters. IBEX only shows evidence links that are attached per product in the catalog.
+            If an item has no evidence link, IBEX will say so. No invented citations.
+          </div>
+        </details>
 
-    <h3>Is this safe for NCAA athletes?</h3>
-    <p>IBEX is designed to be <b>athlete-safe oriented</b>, but no supplement can be guaranteed compliant for every league or every test.
-    Rules change and contamination risk exists. Always check with your athletic department. When possible, use third-party tested products.</p>
+        <details>
+          <summary>
+            <div>
+              Can I ask questions about my plan?
+              <div class="qhint">Yes — use Ask IBEX</div>
+            </div>
+            <div class="chev">⌄</div>
+          </summary>
+          <div class="answer">
+            Yes. Use the <b>Ask IBEX</b> tab to ask questions about timing, stacking, tradeoffs, and travel routines.
+            The chat is grounded in your audit + your recommended items.
+          </div>
+        </details>
 
-    <h3>What should I do if I’m drug-tested?</h3>
-    <ul>
-      <li>Follow your athletic department’s policies.</li>
-      <li>Avoid “blends,” stimulant-heavy products, and anything not third-party tested.</li>
-      <li>Keep packaging / lot numbers for anything you take.</li>
-    </ul>
+        <details>
+          <summary>
+            <div>
+              Do you show brands or stores?
+              <div class="qhint">Ingredient-first recommendations</div>
+            </div>
+            <div class="chev">⌄</div>
+          </summary>
+          <div class="answer">
+            By default, IBEX does <b>not</b> show brands or retailers in athlete-facing recommendation cards.
+            The focus is the ingredient, form, timing, and why it was chosen.
+          </div>
+        </details>
 
-    <h3>Why does IBEX sometimes recommend fewer items?</h3>
-    <p>Because “more” isn’t always better. IBEX prioritizes conservative stacks and clarity. If your inputs indicate sensitivities
-    (GI issues, caffeine sensitivity, sleep issues), IBEX becomes more selective.</p>
+        <details>
+          <summary>
+            <div>
+              Is this safe for NCAA athletes?
+              <div class="qhint">No guarantees — but strong guardrails</div>
+            </div>
+            <div class="chev">⌄</div>
+          </summary>
+          <div class="answer">
+            IBEX is designed to be athlete-safe oriented, but no supplement can be guaranteed compliant for every league or every test.
+            Rules change and contamination risk exists. Always check with your athletic department.
+            <div style="margin-top:10px;">
+              <span class="pill">Prefer third-party tested</span>
+              <span class="pill">Avoid blends & “hardcore” products</span>
+              <span class="pill">Keep packaging / lot numbers</span>
+            </div>
+          </div>
+        </details>
 
-    <h3>How do I use my IBEX Audit ID?</h3>
-    <p>Your Audit ID helps match your checkout/order to your recommendation record. Copy it from the card and paste it during checkout as instructed.</p>
+        <details>
+          <summary>
+            <div>
+              How do I delete my data?
+              <div class="qhint">Email support with your Audit ID</div>
+            </div>
+            <div class="chev">⌄</div>
+          </summary>
+          <div class="answer">
+            Email <b>{support_email}</b> with your IBEX Audit ID and request deletion.
+            If you don’t have the ID, include the email you used (if provided) and approximate date/time.
+          </div>
+        </details>
 
-    <h3>What data do you save?</h3>
-    <p>We store your audit inputs, the recommendation output, and your Audit ID so the experience works and can be improved safely.
-    See the Privacy Policy tab for details.</p>
+        <details>
+          <summary>
+            <div>
+              Support
+              <div class="qhint">We respond fast</div>
+            </div>
+            <div class="chev">⌄</div>
+          </summary>
+          <div class="answer">
+            Email: <b>{support_email}</b>
+          </div>
+        </details>
 
-    <h3>How do I delete my data?</h3>
-    <p>Email <b>{support_email}</b> with your IBEX Audit ID and request deletion.</p>
-
-    <h3>Support</h3>
-    <p>Email: <b>{support_email}</b></p>
-  </div>
-</div>
-""",
-        unsafe_allow_html=True,
-    )
+      </div>
+    </div>
+    """
+    st.markdown(html, unsafe_allow_html=True)
 
 
 # =========================================================
@@ -1202,6 +1319,7 @@ with tabs[2]:
 # =========================================================
 with tabs[3]:
     render_faq()
+
 
 
 
