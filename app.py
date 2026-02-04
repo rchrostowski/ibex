@@ -33,12 +33,8 @@ APP_TAGLINE = "Personalized performance systems for athletes"
 PRODUCTS_CSV = "data/products.csv"
 EXCLUSIONS_CSV = "data/exclusions.csv"
 
-# Put a HIGH-RES square logo here (512x512 or 1024x1024)
 LOGO_PATH = "assets/ibex_logo.png"
 
-# ---------------------------------------------------------
-# PAGE CONFIG (favicon / engine tab icon)
-# ---------------------------------------------------------
 st.set_page_config(
     page_title=f"{APP_TITLE} • Performance Audit",
     page_icon=LOGO_PATH,
@@ -327,7 +323,10 @@ def parse_money(val) -> float:
         if not s:
             return 0.0
         s = s.replace("$", "").replace(",", "")
-        return float(s)
+        x = float(s)
+        if x != x:  # NaN guard
+            return 0.0
+        return x
     except Exception:
         return 0.0
 
@@ -382,7 +381,8 @@ def evidence_enabled() -> bool:
 
 
 # =========================================================
-# PLAN DEFINITIONS + PROFIT-PROTECTED LIMITS
+# PLAN DEFINITIONS + INTERNAL PROFIT-PROTECTED LIMITS
+# (NOT shown in UI)
 # =========================================================
 PLAN_COPY = {
     "Basic": {
@@ -407,17 +407,12 @@ PLAN_COPY = {
     },
 }
 
-# These are "foundation" categories you generally want to prioritize when capping
 BASIC_CORE_CATEGORIES = {
     "Creatine", "Omega-3", "Magnesium", "Vitamin D", "Electrolytes", "Protein",
     "Multivitamin", "Zinc", "Vitamin C", "Probiotic", "Fiber", "Collagen", "Tart Cherry"
 }
 
-# Profit-protected constraints:
-# - cap number of items
-# - cap monthly supplement budget (based on Est_Monthly_Cost column)
-# - cap schedule bucket sizes (keeps it practical)
-# - items with Est_Monthly_Cost >= $20 count as 2 units
+# Internal only. You can change these later without touching UI.
 PLAN_LIMITS = {
     "Basic": {"max_units": 5, "supp_budget": 39.0, "max_am": 3, "max_pm": 2, "max_training": 2},
     "Performance": {"max_units": 8, "supp_budget": 69.0, "max_am": 3, "max_pm": 3, "max_training": 2},
@@ -678,9 +673,8 @@ def run_ai(intake: dict, products_shortlist: pd.DataFrame, exclusions: pd.DataFr
         "Do NOT invent papers, DOIs, authors, or citations. If evidence is missing, do not pretend it exists. "
         "If intake mentions serious symptoms, medications, or a medical condition, set consult_professional=true and keep recommendations conservative. "
         f"{plan_rules} "
-        "PROFIT-PROTECTED LIMITS (must follow): "
-        f"Total included items must fit within a monthly supplement budget of ${lim['supp_budget']:.0f} (based on Est_Monthly_Cost). "
-        f"Also cap the stack to {lim['max_units']} units max, where any item with Est_Monthly_Cost >= $20 counts as 2 units. "
+        "STACK CAPS (must follow): "
+        f"Cap the stack to {lim['max_units']} units max, where any item with Est_Monthly_Cost >= $20 counts as 2 units. "
         f"Schedule caps: AM ≤ {lim['max_am']}, PM ≤ {lim['max_pm']}, Training ≤ {lim['max_training']}. "
         "If more items could help, include them as optional suggestions in notes_for_athlete instead of adding them to included_product_ids. "
         "Return ONLY valid JSON matching output_format schema."
@@ -717,7 +711,7 @@ def run_ai(intake: dict, products_shortlist: pd.DataFrame, exclusions: pd.DataFr
 
 
 # =========================================================
-# ENFORCE PROFIT CAPS (HARD) — last line of defense
+# ENFORCE STACK CAPS (HARD) — last line of defense
 # =========================================================
 def enforce_caps(ai_out: dict, plan: str, products_df: pd.DataFrame) -> dict:
     lim = PLAN_LIMITS.get(plan, {"max_units": 6, "supp_budget": 50.0, "max_am": 3, "max_pm": 3, "max_training": 2})
@@ -751,14 +745,9 @@ def enforce_caps(ai_out: dict, plan: str, products_df: pd.DataFrame) -> dict:
             "order": model_order.get(pid, 9999)
         })
 
-    # Priority sort:
-    # - core categories first
-    # - then nsf/tpt
-    # - then keep the model's original order
     rows.sort(key=lambda r: (not r["core"], not r["nsf"], not r["tpt"], r["order"]))
 
     picked = []
-    total_cost = 0.0
     used_units = 0
 
     for r in rows:
@@ -766,14 +755,9 @@ def enforce_caps(ai_out: dict, plan: str, products_df: pd.DataFrame) -> dict:
         units = item_units(cost)
         if used_units + units > lim["max_units"]:
             continue
-        if total_cost + cost > lim["supp_budget"]:
-            continue
-
         picked.append(r["pid"])
-        total_cost += cost
         used_units += units
 
-    # If nothing fits due to missing costs, fall back to a simple unit cap using ordering
     if not picked:
         for r in rows:
             cost = float(r["est"] or 0.0)
@@ -787,7 +771,6 @@ def enforce_caps(ai_out: dict, plan: str, products_df: pd.DataFrame) -> dict:
 
     picked_set = set(picked)
 
-    # Trim schedule buckets to picked items and per-bucket caps
     def trim_bucket(items, maxn):
         out = []
         for pid in (items or []):
@@ -797,25 +780,17 @@ def enforce_caps(ai_out: dict, plan: str, products_df: pd.DataFrame) -> dict:
                 break
         return out
 
-    new_schedule = {}
-    new_schedule["AM"] = trim_bucket(schedule.get("AM", []), lim["max_am"])
-    new_schedule["PM"] = trim_bucket(schedule.get("PM", []), lim["max_pm"])
-    new_schedule["Training"] = trim_bucket(schedule.get("Training", []), lim["max_training"])
+    new_schedule = {
+        "AM": trim_bucket(schedule.get("AM", []), lim["max_am"]),
+        "PM": trim_bucket(schedule.get("PM", []), lim["max_pm"]),
+        "Training": trim_bucket(schedule.get("Training", []), lim["max_training"]),
+    }
 
-    # Ensure schedule items are subset of picked
-    sched_set = set(new_schedule["AM"] + new_schedule["PM"] + new_schedule["Training"])
-    # If schedule lost some picked items, keep them still in included list (that’s okay).
-    # But if schedule accidentally has items not in picked, already removed.
-
-    # Reasons only for picked
     new_reasons = {pid: reasons.get(pid, "") for pid in picked if pid in reasons}
 
-    # Add a helpful note if we cut items
+    # IMPORTANT: no dollar amounts shown to users
     if len(picked) < len(included):
-        msg = (
-            f"To keep the stack practical and within your plan budget, we capped your recommendations "
-            f"to ~${lim['supp_budget']:.0f}/mo and {lim['max_units']} units."
-        )
+        msg = "To keep the stack practical, we capped the number of recommended items for your plan."
         if msg not in notes:
             notes = [msg] + notes
 
@@ -823,13 +798,9 @@ def enforce_caps(ai_out: dict, plan: str, products_df: pd.DataFrame) -> dict:
     ai_out["schedule"] = new_schedule
     ai_out["reasons"] = new_reasons
     ai_out["notes_for_athlete"] = notes
-    ai_out["meta_caps"] = {
-        "plan": plan,
-        "supp_budget": lim["supp_budget"],
-        "max_units": lim["max_units"],
-        "estimated_monthly_cost_selected": round(total_cost, 2),
-        "units_selected": used_units,
-    }
+
+    # keep internal meta for you (not displayed anywhere)
+    ai_out["meta_caps"] = {"plan": plan, "units_selected": used_units, "max_units": lim["max_units"]}
 
     return ai_out
 
@@ -910,84 +881,86 @@ def render_schedule(schedule: dict, products_df: pd.DataFrame):
 
 
 # =========================================================
-# PRIVACY POLICY (FULL)
+# PRIVACY POLICY (FIXED — no raw HTML tags showing)
 # =========================================================
 def render_privacy_policy():
     eff = date.today().strftime("%B %d, %Y")
     support_email = st.secrets.get("SUPPORT_EMAIL", "support@ibexsupplements.com")
 
-    html = f"""
-    <div class="ibx-card">
-      <div style="font-size:30px; font-weight:950; color:#0f172a;">Privacy Policy</div>
-      <div class="ibx-muted" style="margin-top:6px;">Effective: {eff}</div>
-      <div class="ibx-divider"></div>
+    st.markdown(
+        f"""
+<div class="ibx-card">
+  <div style="font-size:30px; font-weight:950; color:#0f172a;">Privacy Policy</div>
+  <div class="ibx-muted" style="margin-top:6px;">Effective: {eff}</div>
+  <div class="ibx-divider"></div>
 
-      <div style="font-size:16px; line-height:1.7; color:#334155;">
-        <p><b>IBEX</b> (“we,” “us,” or “our”) provides a performance audit and supplement planning experience for athletes.
-        This Privacy Policy explains what we collect, why we collect it, how it is used, and the choices you have.</p>
+  <div style="font-size:16px; line-height:1.7; color:#334155;">
+    <p><b>IBEX</b> (“we,” “us,” or “our”) provides a performance audit and supplement planning experience for athletes.
+    This policy explains what we collect, why we collect it, how it’s used, and the choices you have.</p>
 
-        <h3 style="margin-top:18px;">1) What we collect</h3>
-        <ul>
-          <li><b>Contact info</b>: name and email (optional fields may be left blank).</li>
-          <li><b>Training & lifestyle inputs</b>: sport, season status, training frequency, goals, sleep, stress, soreness, sensitivities, and notes you enter.</li>
-          <li><b>App usage data</b>: audit reference ID, timestamps, and diagnostic logs needed to operate the service.</li>
-        </ul>
+    <div style="margin-top:18px; font-weight:950; color:#0f172a; font-size:18px;">1) What we collect</div>
+    <ul>
+      <li><b>Contact info</b>: name and email (optional fields may be left blank).</li>
+      <li><b>Training & lifestyle inputs</b>: sport, season status, training frequency, goals, sleep, stress, soreness, sensitivities, and notes you enter.</li>
+      <li><b>App usage data</b>: audit reference ID and basic logs needed to operate the service.</li>
+    </ul>
 
-        <h3 style="margin-top:18px;">2) What we do not collect</h3>
-        <ul>
-          <li>We do not require student/team IDs, department logins, or social security numbers.</li>
-          <li>We do not sell personal information.</li>
-        </ul>
+    <div style="margin-top:18px; font-weight:950; color:#0f172a; font-size:18px;">2) What we do not collect</div>
+    <ul>
+      <li>We do not require student/team IDs, department logins, or social security numbers.</li>
+      <li>We do not sell personal information.</li>
+    </ul>
 
-        <h3 style="margin-top:18px;">3) How we use your information</h3>
-        <ul>
-          <li>Generate your recommended system and timing schedule.</li>
-          <li>Power the “Ask IBEX” chat using your audit + recommended items as context.</li>
-          <li>Display evidence links only when attached per product in our catalog.</li>
-          <li>Improve reliability and safety controls (aggregate analysis, not ad targeting).</li>
-        </ul>
+    <div style="margin-top:18px; font-weight:950; color:#0f172a; font-size:18px;">3) How we use your information</div>
+    <ul>
+      <li>Generate your recommended system and timing schedule.</li>
+      <li>Power the “Ask IBEX” chat using your audit + recommended items as context.</li>
+      <li>Show evidence links only when attached per product in our catalog.</li>
+      <li>Improve reliability and safety controls (aggregate analysis, not ad targeting).</li>
+    </ul>
 
-        <h3 style="margin-top:18px;">4) AI processing</h3>
-        <p>Your audit inputs and a curated list of allowed catalog items may be sent to an AI provider to generate structured output.
-        We instruct the model to avoid medical diagnosis/treatment and to <b>not invent research citations</b>.
-        If evidence is missing for an item, we do not pretend it exists.</p>
+    <div style="margin-top:18px; font-weight:950; color:#0f172a; font-size:18px;">4) AI processing</div>
+    <p>Your audit inputs and a curated list of allowed catalog items may be sent to an AI provider to generate structured output.
+    We instruct the model to avoid medical diagnosis/treatment and to <b>not invent research citations</b>.
+    If evidence is missing for an item, we do not pretend it exists.</p>
 
-        <h3 style="margin-top:18px;">5) NCAA / sport compliance notice</h3>
-        <p>IBEX is athlete-safe oriented, but <b>no supplement can be guaranteed compliant</b> for any league or test.
-        Rules change and contamination can occur. Always confirm with your athletic department.</p>
+    <div style="margin-top:18px; font-weight:950; color:#0f172a; font-size:18px;">5) NCAA / sport compliance notice</div>
+    <p>IBEX is athlete-safe oriented, but <b>no supplement can be guaranteed compliant</b> for any league or test.
+    Rules change and contamination can occur. Always confirm with your athletic department.</p>
 
-        <h3 style="margin-top:18px;">6) Where data is stored</h3>
-        <p>Audit records may be stored in a secure database and may include your inputs, outputs, and reference ID.</p>
+    <div style="margin-top:18px; font-weight:950; color:#0f172a; font-size:18px;">6) Where data is stored</div>
+    <p>Audit records may be stored in a secure database and may include your inputs, outputs, and reference ID.</p>
 
-        <h3 style="margin-top:18px;">7) Sharing</h3>
-        <ul>
-          <li><b>Service providers</b>: hosting, database, and AI processing providers as needed to run IBEX.</li>
-          <li><b>Legal</b>: if required by law or to protect users and the service.</li>
-        </ul>
+    <div style="margin-top:18px; font-weight:950; color:#0f172a; font-size:18px;">7) Sharing</div>
+    <ul>
+      <li><b>Service providers</b>: hosting, database, and AI processing providers as needed to run IBEX.</li>
+      <li><b>Legal</b>: if required by law or to protect users and the service.</li>
+    </ul>
 
-        <h3 style="margin-top:18px;">8) Retention</h3>
-        <p>We retain audit data as long as needed to provide the service and improve safety.
-        You can request deletion (see Section 10).</p>
+    <div style="margin-top:18px; font-weight:950; color:#0f172a; font-size:18px;">8) Retention</div>
+    <p>We retain audit data as long as needed to provide the service and improve safety.
+    You can request deletion (see Section 10).</p>
 
-        <h3 style="margin-top:18px;">9) Security</h3>
-        <p>We use reasonable safeguards (access controls and encryption in transit where supported). No method is 100% secure.</p>
+    <div style="margin-top:18px; font-weight:950; color:#0f172a; font-size:18px;">9) Security</div>
+    <p>We use reasonable safeguards (access controls and encryption in transit where supported). No method is 100% secure.</p>
 
-        <h3 style="margin-top:18px;">10) Your choices (access / delete)</h3>
-        <p>To request access to or deletion of your audit data, email <b>{support_email}</b> with your IBEX Audit ID.
-        If you don’t have it, include the email you used (if provided) and approximate date/time.</p>
+    <div style="margin-top:18px; font-weight:950; color:#0f172a; font-size:18px;">10) Your choices (access / delete)</div>
+    <p>To request access to or deletion of your audit data, email <b>{support_email}</b> with your IBEX Audit ID.
+    If you don’t have it, include the email you used (if provided) and approximate date/time.</p>
 
-        <h3 style="margin-top:18px;">11) Children</h3>
-        <p>IBEX is intended for users who can legally consent to data processing in their jurisdiction.</p>
+    <div style="margin-top:18px; font-weight:950; color:#0f172a; font-size:18px;">11) Children</div>
+    <p>IBEX is intended for users who can legally consent to data processing in their jurisdiction.</p>
 
-        <h3 style="margin-top:18px;">12) Changes</h3>
-        <p>We may update this policy. The effective date above reflects the latest revision.</p>
+    <div style="margin-top:18px; font-weight:950; color:#0f172a; font-size:18px;">12) Changes</div>
+    <p>We may update this policy. The effective date above reflects the latest revision.</p>
 
-        <h3 style="margin-top:18px;">Contact</h3>
-        <p>Email: <b>{support_email}</b></p>
-      </div>
-    </div>
-    """
-    st.markdown(html, unsafe_allow_html=True)
+    <div style="margin-top:18px; font-weight:950; color:#0f172a; font-size:18px;">Contact</div>
+    <p>Email: <b>{support_email}</b></p>
+  </div>
+</div>
+""",
+        unsafe_allow_html=True
+    )
 
 
 # =========================================================
@@ -996,162 +969,164 @@ def render_privacy_policy():
 def render_faq():
     support_email = st.secrets.get("SUPPORT_EMAIL", "support@ibexsupplements.com")
 
-    html = f"""
-    <div class="ibx-card">
-      <div style="font-size:30px; font-weight:950; color:#0f172a;">FAQ</div>
-      <div class="ibx-muted" style="margin-top:6px;">Answers for athletes — simple, direct, and transparent.</div>
-      <div class="ibx-divider"></div>
+    st.markdown(
+        f"""
+<div class="ibx-card">
+  <div style="font-size:30px; font-weight:950; color:#0f172a;">FAQ</div>
+  <div class="ibx-muted" style="margin-top:6px;">Answers for athletes — simple, direct, and transparent.</div>
+  <div class="ibx-divider"></div>
 
-      <div class="ibx-faq">
+  <div class="ibx-faq">
 
-        <details open>
-          <summary>
-            <div>
-              What is IBEX?
-              <div class="qhint">Audit → system → schedule</div>
-            </div>
-            <div class="chev">⌄</div>
-          </summary>
-          <div class="answer">
-            IBEX is a performance audit that helps athletes build a simple supplement system and timing schedule.
-            You answer questions about training, recovery, and goals, and IBEX generates a plan using only items from a curated catalog.
-          </div>
-        </details>
-
-        <details>
-          <summary>
-            <div>
-              Is IBEX medical advice?
-              <div class="qhint">No diagnosis, no treatment</div>
-            </div>
-            <div class="chev">⌄</div>
-          </summary>
-          <div class="answer">
-            No. IBEX is not a medical provider and does not diagnose or treat conditions.
-            If you have symptoms, take medications, or have a medical condition, consult a qualified professional.
-          </div>
-        </details>
-
-        <details>
-          <summary>
-            <div>
-              How does IBEX choose supplements?
-              <div class="qhint">AI constrained to your allowed list</div>
-            </div>
-            <div class="chev">⌄</div>
-          </summary>
-          <div class="answer">
-            IBEX uses your audit inputs and matches them to items in the catalog.
-            The AI is constrained to choose only from the approved products provided for your session.
-          </div>
-        </details>
-
-        <details>
-          <summary>
-            <div>
-              Why do you show “Evidence” links?
-              <div class="qhint">Trust barrier → show sources only when they exist</div>
-            </div>
-            <div class="chev">⌄</div>
-          </summary>
-          <div class="answer">
-            Athletes are smart — and trust matters. IBEX only shows evidence links that are attached per product in the catalog.
-            If an item has no evidence link, IBEX will say so. No invented citations.
-          </div>
-        </details>
-
-        <details>
-          <summary>
-            <div>
-              Can I ask questions about my plan?
-              <div class="qhint">Yes — use Ask IBEX</div>
-            </div>
-            <div class="chev">⌄</div>
-          </summary>
-          <div class="answer">
-            Yes. Use the <b>Ask IBEX</b> tab to ask questions about timing, stacking, tradeoffs, and travel routines.
-            The chat is grounded in your audit + your recommended items.
-          </div>
-        </details>
-
-        <details>
-          <summary>
-            <div>
-              Do you show brands or stores?
-              <div class="qhint">Ingredient-first recommendations</div>
-            </div>
-            <div class="chev">⌄</div>
-          </summary>
-          <div class="answer">
-            By default, IBEX does <b>not</b> show brands or retailers in athlete-facing recommendation cards.
-            The focus is the ingredient, form, timing, and why it was chosen.
-          </div>
-        </details>
-
-        <details>
-          <summary>
-            <div>
-              Is this safe for NCAA athletes?
-              <div class="qhint">No guarantees — but strong guardrails</div>
-            </div>
-            <div class="chev">⌄</div>
-          </summary>
-          <div class="answer">
-            IBEX is designed to be athlete-safe oriented, but no supplement can be guaranteed compliant for every league or every test.
-            Rules change and contamination risk exists. Always check with your athletic department.
-            <div style="margin-top:10px;">
-              <span class="pill">Prefer third-party tested</span>
-              <span class="pill">Avoid blends & “hardcore” products</span>
-              <span class="pill">Keep packaging / lot numbers</span>
-            </div>
-          </div>
-        </details>
-
-        <details>
-          <summary>
-            <div>
-              Why are recommendations capped?
-              <div class="qhint">Practical + budgeted stack</div>
-            </div>
-            <div class="chev">⌄</div>
-          </summary>
-          <div class="answer">
-            IBEX caps recommendations to keep your stack realistic (and affordable to ship).
-            Plans have a monthly supplement budget and a hard item cap. If more could help, IBEX lists them as optional in notes.
-          </div>
-        </details>
-
-        <details>
-          <summary>
-            <div>
-              How do I delete my data?
-              <div class="qhint">Email support with your Audit ID</div>
-            </div>
-            <div class="chev">⌄</div>
-          </summary>
-          <div class="answer">
-            Email <b>{support_email}</b> with your IBEX Audit ID and request deletion.
-            If you don’t have the ID, include the email you used (if provided) and approximate date/time.
-          </div>
-        </details>
-
-        <details>
-          <summary>
-            <div>
-              Support
-              <div class="qhint">We respond fast</div>
-            </div>
-            <div class="chev">⌄</div>
-          </summary>
-          <div class="answer">
-            Email: <b>{support_email}</b>
-          </div>
-        </details>
-
+    <details open>
+      <summary>
+        <div>
+          What is IBEX?
+          <div class="qhint">Audit → system → schedule</div>
+        </div>
+        <div class="chev">⌄</div>
+      </summary>
+      <div class="answer">
+        IBEX is a performance audit that helps athletes build a simple supplement system and timing schedule.
+        You answer questions about training, recovery, and goals, and IBEX generates a plan using only items from a curated catalog.
       </div>
-    </div>
-    """
-    st.markdown(html, unsafe_allow_html=True)
+    </details>
+
+    <details>
+      <summary>
+        <div>
+          Is IBEX medical advice?
+          <div class="qhint">No diagnosis, no treatment</div>
+        </div>
+        <div class="chev">⌄</div>
+      </summary>
+      <div class="answer">
+        No. IBEX is not a medical provider and does not diagnose or treat conditions.
+        If you have symptoms, take medications, or have a medical condition, consult a qualified professional.
+      </div>
+    </details>
+
+    <details>
+      <summary>
+        <div>
+          How does IBEX choose supplements?
+          <div class="qhint">AI constrained to your allowed list</div>
+        </div>
+        <div class="chev">⌄</div>
+      </summary>
+      <div class="answer">
+        IBEX uses your audit inputs and matches them to items in the catalog.
+        The AI is constrained to choose only from the approved products provided for your session.
+      </div>
+    </details>
+
+    <details>
+      <summary>
+        <div>
+          Why do you show “Evidence” links?
+          <div class="qhint">Trust barrier → sources only when they exist</div>
+        </div>
+        <div class="chev">⌄</div>
+      </summary>
+      <div class="answer">
+        Athletes are smart — and trust matters. IBEX only shows evidence links that are attached per product in the catalog.
+        If an item has no evidence link, IBEX will say so. No invented citations.
+      </div>
+    </details>
+
+    <details>
+      <summary>
+        <div>
+          Can I ask questions about my plan?
+          <div class="qhint">Yes — use Ask IBEX</div>
+        </div>
+        <div class="chev">⌄</div>
+      </summary>
+      <div class="answer">
+        Yes. Use the <b>Ask IBEX</b> tab to ask questions about timing, stacking, tradeoffs, and travel routines.
+        The chat is grounded in your audit + your recommended items.
+      </div>
+    </details>
+
+    <details>
+      <summary>
+        <div>
+          Do you show brands or stores?
+          <div class="qhint">Ingredient-first recommendations</div>
+        </div>
+        <div class="chev">⌄</div>
+      </summary>
+      <div class="answer">
+        By default, IBEX does <b>not</b> show brands or retailers in athlete-facing recommendation cards.
+        The focus is the ingredient, form, timing, and why it was chosen.
+      </div>
+    </details>
+
+    <details>
+      <summary>
+        <div>
+          Is this safe for NCAA athletes?
+          <div class="qhint">No guarantees — but strong guardrails</div>
+        </div>
+        <div class="chev">⌄</div>
+      </summary>
+      <div class="answer">
+        IBEX is designed to be athlete-safe oriented, but no supplement can be guaranteed compliant for every league or test.
+        Rules change and contamination risk exists. Always check with your athletic department.
+        <div style="margin-top:10px;">
+          <span class="pill">Prefer third-party tested</span>
+          <span class="pill">Avoid blends & “hardcore” products</span>
+          <span class="pill">Keep packaging / lot numbers</span>
+        </div>
+      </div>
+    </details>
+
+    <details>
+      <summary>
+        <div>
+          Why are recommendations capped?
+          <div class="qhint">Practical + simple system</div>
+        </div>
+        <div class="chev">⌄</div>
+      </summary>
+      <div class="answer">
+        IBEX caps recommendations to keep your stack realistic and easy to follow.
+        If more items could help, IBEX lists them as optional in notes instead of forcing a huge stack.
+      </div>
+    </details>
+
+    <details>
+      <summary>
+        <div>
+          How do I delete my data?
+          <div class="qhint">Email support with your Audit ID</div>
+        </div>
+        <div class="chev">⌄</div>
+      </summary>
+      <div class="answer">
+        Email <b>{support_email}</b> with your IBEX Audit ID and request deletion.
+        If you don’t have the ID, include the email you used (if provided) and approximate date/time.
+      </div>
+    </details>
+
+    <details>
+      <summary>
+        <div>
+          Support
+          <div class="qhint">We respond fast</div>
+        </div>
+        <div class="chev">⌄</div>
+      </summary>
+      <div class="answer">
+        Email: <b>{support_email}</b>
+      </div>
+    </details>
+
+  </div>
+</div>
+""",
+        unsafe_allow_html=True
+    )
 
 
 # =========================================================
@@ -1279,14 +1254,6 @@ with tabs[0]:
         if flags:
             st.caption("Signals detected: " + ", ".join(flags))
 
-        # Optional: show budget meta (safe + transparent)
-        meta = ai_out.get("meta_caps", {})
-        if meta:
-            st.caption(
-                f"Plan caps applied: budget ~${meta.get('supp_budget')} / mo • "
-                f"selected est. ${meta.get('estimated_monthly_cost_selected')} / mo"
-            )
-
         st.subheader("Recommended Stack")
         render_products(ai_out.get("included_product_ids", []), products, ai_out.get("reasons", {}))
 
@@ -1345,6 +1312,7 @@ with tabs[0]:
             unsafe_allow_html=True
         )
 
+    # SIDEBAR FORM
     with st.sidebar:
         st.markdown("## IBEX Audit")
         st.caption("Plan → Audit → Instant system.")
@@ -1362,11 +1330,6 @@ with tabs[0]:
         for b in pc["bullets"]:
             st.write(f"• {b}")
         st.caption(pc["note"])
-
-        # Transparency (optional)
-        lim = PLAN_LIMITS.get(plan, {})
-        if lim:
-            st.caption(f"Plan cap: ~${lim['supp_budget']:.0f}/mo supplement budget • {lim['max_units']} units max")
 
         st.markdown("---")
 
@@ -1438,7 +1401,6 @@ with tabs[0]:
             with st.spinner("Generating your system…"):
                 ai_out = run_ai(intake, shortlist, exclusions, plan)
 
-            # HARD CAP ENFORCEMENT (prevents money-losing giant stacks)
             ai_out = enforce_caps(ai_out, plan, products)
 
             try:
