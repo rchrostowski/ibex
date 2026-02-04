@@ -1,7 +1,6 @@
 import os
 import json
 import uuid
-import base64
 from datetime import date
 
 import pandas as pd
@@ -23,6 +22,7 @@ try:
     from supabase import create_client
 except Exception:
     create_client = None
+
 
 # =========================================================
 # CONFIG / PATHS
@@ -48,10 +48,6 @@ st.set_page_config(
 
 # =========================================================
 # PREMIUM STYLING
-# FIXES:
-#  - Dropdown menu options unreadable (BaseWeb menu portal)
-# CHANGES:
-#  - No checkbox gating UX changes here; that's in form logic below
 # =========================================================
 st.markdown(
     """
@@ -186,31 +182,19 @@ section[data-testid="stSidebar"] [data-baseweb="select"] svg{
   color: var(--text) !important;
 }
 
-/* =========================================================
-   FIX: Dropdown menu options unreadable
-   BaseWeb renders menu in a portal (popover/menu) OUTSIDE sidebar.
-   Force high-contrast text + white background for the menu.
-========================================================= */
-
-/* Popover container background */
+/* FIX: Dropdown menu options unreadable */
 div[data-baseweb="popover"]{
   background: transparent !important;
 }
-
-/* Menu panel */
 div[data-baseweb="menu"]{
   background:#ffffff !important;
   border:1px solid rgba(15,23,42,0.12) !important;
   border-radius: 14px !important;
   overflow:hidden !important;
 }
-
-/* Menu items text */
 div[data-baseweb="menu"] *{
-  color:#0f172a !important;     /* FORCE readable text */
+  color:#0f172a !important;
 }
-
-/* Option hover */
 div[data-baseweb="menu"] [role="option"]:hover{
   background: rgba(15,23,42,0.06) !important;
 }
@@ -242,6 +226,7 @@ def require_file(path: str, friendly: str):
         st.info("Fix: upload the file to your GitHub repo in the correct folder, then reboot the app.")
         st.stop()
 
+
 def load_logo():
     if not os.path.exists(LOGO_PATH):
         return None
@@ -251,6 +236,7 @@ def load_logo():
         return Image.open(LOGO_PATH)
     except Exception:
         return None
+
 
 def get_openai_client():
     api_key = st.secrets.get("OPENAI_API_KEY")
@@ -262,8 +248,10 @@ def get_openai_client():
         st.stop()
     return OpenAI(api_key=api_key)
 
+
 def is_yes(val) -> bool:
-    return str(val).strip().lower() in {"y","yes","true","1"}
+    return str(val).strip().lower() in {"y", "yes", "true", "1"}
+
 
 # =========================================================
 # Supabase client + save function
@@ -283,6 +271,7 @@ def get_supabase():
 
     return create_client(url, key)
 
+
 def save_to_supabase(rid: str, intake: dict, ai_out: dict):
     sb = get_supabase()
     payload = {
@@ -293,11 +282,28 @@ def save_to_supabase(rid: str, intake: dict, ai_out: dict):
         "ai_result": ai_out,
         "status": "created",
     }
-
     res = sb.table("recommendations").insert(payload).execute()
     if hasattr(res, "error") and res.error:
         raise RuntimeError(str(res.error))
     return res.data[0]["id"] if res.data else None
+
+
+# =========================================================
+# Evidence link (paper-per-product)
+# - Add optional column to products.csv: Evidence_Link
+# - If missing, we fall back to Link
+# =========================================================
+def get_evidence_link(row: dict) -> str:
+    ev = str(row.get("Evidence_Link", "") or "").strip()
+    if ev:
+        return ev
+    # fallback
+    return str(row.get("Link", "") or "").strip()
+
+
+def evidence_enabled() -> bool:
+    return str(st.secrets.get("EVIDENCE_LINKS_ENABLED", "true")).strip().lower() in {"1", "true", "yes", "y"}
+
 
 # =========================================================
 # PREMIUM AUDIT ID CARD
@@ -374,6 +380,7 @@ def display_audit_id(rid: str):
     """
     components.html(html, height=210)
 
+
 # =========================================================
 # HEADER
 # =========================================================
@@ -396,7 +403,7 @@ def render_header():
                 """
                 <div style="margin-top:10px;">
                   <span class="ibx-badge">Plan-aware AI</span>
-                  <span class="ibx-badge">Privacy-first</span>
+                  <span class="ibx-badge">Evidence-linked</span>
                   <span class="ibx-badge">Athlete-safe guardrails</span>
                 </div>
                 """,
@@ -413,6 +420,7 @@ def render_header():
             unsafe_allow_html=True,
         )
 
+
 # =========================================================
 # DATA LOADERS
 # =========================================================
@@ -420,15 +428,22 @@ def render_header():
 def load_products():
     df = pd.read_csv(PRODUCTS_CSV)
     df.columns = [c.strip() for c in df.columns]
+
     required = [
-        "Product_ID","Category","Ingredient","Brand","Store","Link",
-        "Serving_Form","Typical_Use","Timing","Avoid_If",
-        "Third_Party_Tested","NSF_Certified","Price","Est_Monthly_Cost","Notes"
+        "Product_ID", "Category", "Ingredient", "Brand", "Store", "Link",
+        "Serving_Form", "Typical_Use", "Timing", "Avoid_If",
+        "Third_Party_Tested", "NSF_Certified", "Price", "Est_Monthly_Cost", "Notes"
     ]
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise ValueError(f"products.csv missing columns: {missing}")
+
+    # Optional evidence column:
+    if "Evidence_Link" not in df.columns:
+        df["Evidence_Link"] = ""
+
     return df
+
 
 @st.cache_data(show_spinner=False)
 def load_exclusions():
@@ -437,6 +452,7 @@ def load_exclusions():
     if "Excluded_Category_or_Ingredient" not in df.columns or "Reason" not in df.columns:
         raise ValueError("exclusions.csv must have columns: Excluded_Category_or_Ingredient, Reason")
     return df
+
 
 # =========================================================
 # PLAN DEFINITIONS
@@ -465,9 +481,10 @@ PLAN_COPY = {
 }
 
 BASIC_CORE_CATEGORIES = {
-    "Creatine","Omega-3","Magnesium","Vitamin D","Electrolytes","Protein",
-    "Multivitamin","Zinc","Vitamin C","Probiotic","Fiber","Collagen","Tart Cherry"
+    "Creatine", "Omega-3", "Magnesium", "Vitamin D", "Electrolytes", "Protein",
+    "Multivitamin", "Zinc", "Vitamin C", "Probiotic", "Fiber", "Collagen", "Tart Cherry"
 }
+
 
 def filter_products_by_plan(products: pd.DataFrame, plan: str) -> pd.DataFrame:
     p = products.copy()
@@ -475,6 +492,7 @@ def filter_products_by_plan(products: pd.DataFrame, plan: str) -> pd.DataFrame:
     if plan == "Basic":
         return p[p["Category_norm"].isin(BASIC_CORE_CATEGORIES)]
     return p
+
 
 def shortlist_products(products: pd.DataFrame, goals: list[str], gi_sensitive: bool, caffeine_sensitive: bool, plan: str) -> pd.DataFrame:
     p = filter_products_by_plan(products, plan)
@@ -494,8 +512,8 @@ def shortlist_products(products: pd.DataFrame, goals: list[str], gi_sensitive: b
     if plan == "Basic":
         p = p.assign(
             nsf=p["NSF_Certified"].apply(is_yes),
-            tpt=p["Third_Party_Tested"].apply(lambda x: str(x).strip().lower() in {"y","yes","true","1","unknown"})
-        ).sort_values(["nsf","tpt"], ascending=[False, False]).drop(columns=["nsf","tpt"])
+            tpt=p["Third_Party_Tested"].apply(lambda x: str(x).strip().lower() in {"y", "yes", "true", "1", "unknown"})
+        ).sort_values(["nsf", "tpt"], ascending=[False, False]).drop(columns=["nsf", "tpt"])
 
     if len(p) < 25:
         p = filter_products_by_plan(products, plan).copy()
@@ -503,12 +521,19 @@ def shortlist_products(products: pd.DataFrame, goals: list[str], gi_sensitive: b
     cap = 55 if plan == "Basic" else 85
     return p.head(cap)
 
+
+# =========================================================
+# AI
+# - No random papers: evidence comes from products.csv Evidence_Link (or Link fallback)
+# =========================================================
 def run_ai(intake: dict, products_shortlist: pd.DataFrame, exclusions: pd.DataFrame, plan: str) -> dict:
     client = get_openai_client()
 
     approved_products = products_shortlist[[
-        "Product_ID","Category","Ingredient","Brand","Store","Serving_Form",
-        "Typical_Use","Timing","Avoid_If","Third_Party_Tested","NSF_Certified","Notes"
+        "Product_ID", "Category", "Ingredient", "Brand", "Store", "Link",
+        "Evidence_Link",
+        "Serving_Form", "Typical_Use", "Timing", "Avoid_If",
+        "Third_Party_Tested", "NSF_Certified", "Notes"
     ]].to_dict(orient="records")
 
     output_schema = {
@@ -528,11 +553,16 @@ def run_ai(intake: dict, products_shortlist: pd.DataFrame, exclusions: pd.DataFr
         "Plan: PERFORMANCE. Expanded optimization. You may add conditional advanced items if clearly supported by intake. Still conservative on risk."
     )
 
+    # Trust barrier rules (from Willem feedback):
+    # - Don’t claim “thousands of papers” in outputs.
+    # - Evidence links are supplied in approved_products — do NOT invent citations.
     system_prompt = (
         "You are IBEX, an assistant that organizes a personalized supplement system for athletes. "
         "You are NOT a medical provider. Do NOT diagnose, treat, or make medical claims. "
         "Only select products from approved_products. "
         "Never select anything that matches the exclusions list. "
+        "IMPORTANT: Evidence links are provided per product in approved_products as Evidence_Link (or Link fallback). "
+        "Do NOT invent papers, DOIs, authors, or citations. If evidence is missing, do not pretend it exists. "
         "If intake mentions serious symptoms, medications, or a medical condition, set consult_professional=true and keep recommendations conservative. "
         f"{plan_rules} "
         "Return ONLY valid JSON matching output_format schema."
@@ -564,16 +594,23 @@ def run_ai(intake: dict, products_shortlist: pd.DataFrame, exclusions: pd.DataFr
         start = content.find("{")
         end = content.rfind("}")
         if start != -1 and end != -1 and end > start:
-            return json.loads(content[start:end+1])
+            return json.loads(content[start:end + 1])
         raise
 
+
+# =========================================================
+# UI RENDERING (NO BRAND / NO STORE SHOWN)
+# =========================================================
 def render_products(product_ids: list[str], products_df: pd.DataFrame, reasons: dict):
     prod_map = products_df.set_index("Product_ID").to_dict(orient="index")
     cols = st.columns(3, gap="large")
+
     for i, pid in enumerate(product_ids):
         p = prod_map.get(pid)
         if not p:
             continue
+
+        ev = get_evidence_link(p)
 
         with cols[i % 3]:
             st.markdown("<div class='ibx-card'>", unsafe_allow_html=True)
@@ -583,13 +620,17 @@ def render_products(product_ids: list[str], products_df: pd.DataFrame, reasons: 
                   <span class="ibx-badge">{p['Category']}</span>
                   <span class="ibx-badge">{p['Timing']}</span>
                 </div>
+
                 <div style="margin-top:12px; font-size:18px; font-weight:800; color:#0f172a;">
                   {p['Ingredient']}
                 </div>
+
                 <div class="ibx-muted" style="margin-top:2px;">
-                  {p['Brand']} • {p['Serving_Form']} • {p['Store']}
+                  {p.get('Serving_Form','')}  <!-- intentionally no brand/store -->
                 </div>
+
                 <div class="ibx-divider"></div>
+
                 <div style="font-weight:800; color:#0f172a;">Why this</div>
                 <div class="ibx-muted" style="margin-top:4px;">
                   {reasons.get(pid, "Personalized to your audit")}
@@ -597,11 +638,23 @@ def render_products(product_ids: list[str], products_df: pd.DataFrame, reasons: 
                 """,
                 unsafe_allow_html=True
             )
+
+            if evidence_enabled():
+                st.markdown("<div class='ibx-divider'></div>", unsafe_allow_html=True)
+                st.markdown("<div style='font-weight:800; color:#0f172a;'>Evidence</div>", unsafe_allow_html=True)
+
+                if ev:
+                    # use Streamlit's normal link styling
+                    st.link_button("Open the study / evidence link", ev)
+                else:
+                    st.caption("No evidence link attached for this product yet.")
+
             st.markdown("</div>", unsafe_allow_html=True)
+
 
 def render_schedule(schedule: dict, products_df: pd.DataFrame):
     prod_map = products_df.set_index("Product_ID").to_dict(orient="index")
-    blocks = [("AM","Morning"), ("PM","Evening"), ("Training","Training")]
+    blocks = [("AM", "Morning"), ("PM", "Evening"), ("Training", "Training")]
     cols = st.columns(3, gap="large")
 
     for i, (key, title) in enumerate(blocks):
@@ -617,12 +670,13 @@ def render_schedule(schedule: dict, products_df: pd.DataFrame):
             else:
                 for pid in items:
                     p = prod_map.get(pid, {})
-                    st.markdown(f"- **{p.get('Ingredient', pid)}** — {p.get('Brand','')}")
+                    # intentionally no brand/store here
+                    st.markdown(f"- **{p.get('Ingredient', pid)}**")
             st.markdown("</div>", unsafe_allow_html=True)
+
 
 def render_privacy_policy():
     eff = date.today().strftime("%B %d, %Y")
-    support_email = st.secrets.get("SUPPORT_EMAIL", "support@ibexsupplements.com")
     st.markdown(
         f"""
 <div class="ibx-card">
@@ -635,10 +689,10 @@ def render_privacy_policy():
         unsafe_allow_html=True
     )
 
+
 def render_faq():
-    support_email = st.secrets.get("SUPPORT_EMAIL", "support@ibexsupplements.com")
     st.markdown(
-        f"""
+        """
 <div class="ibx-card">
   <div style="font-size:26px; font-weight:900; color:#0f172a;">FAQ</div>
   <div class="ibx-divider"></div>
@@ -648,15 +702,77 @@ def render_faq():
         unsafe_allow_html=True
     )
 
+
+# =========================================================
+# AI CHAT (trust barrier feature from Willem feedback)
+# - Uses only the athlete’s audit + recommended products + evidence links
+# - No inventing studies, no medical advice
+# =========================================================
+def build_chat_context(intake: dict, ai_out: dict, products_df: pd.DataFrame) -> dict:
+    prod_map = products_df.set_index("Product_ID").to_dict(orient="index")
+    included = ai_out.get("included_product_ids", []) or []
+    schedule = ai_out.get("schedule", {}) or {}
+    reasons = ai_out.get("reasons", {}) or {}
+
+    items = []
+    for pid in included:
+        p = prod_map.get(pid, {})
+        items.append({
+            "Product_ID": pid,
+            "Category": p.get("Category", ""),
+            "Ingredient": p.get("Ingredient", ""),
+            "Timing": p.get("Timing", ""),
+            "Serving_Form": p.get("Serving_Form", ""),
+            "Reason": reasons.get(pid, ""),
+            "Evidence_Link": get_evidence_link(p),
+            "Notes": p.get("Notes", "")
+        })
+
+    return {
+        "intake": intake,
+        "recommendations": items,
+        "schedule": schedule,
+        "notes_for_athlete": ai_out.get("notes_for_athlete", []),
+        "flags": ai_out.get("flags", []),
+        "consult_professional": bool(ai_out.get("consult_professional", False))
+    }
+
+
+def run_chat_answer(messages: list[dict], context: dict) -> str:
+    client = get_openai_client()
+    model = st.secrets.get("OPENAI_CHAT_MODEL", st.secrets.get("OPENAI_MODEL", "gpt-4.1-mini"))
+
+    system = (
+        "You are IBEX Chat, an athlete-safe assistant. "
+        "You are NOT a medical provider. Do not diagnose or provide medical treatment advice. "
+        "Use only the provided context (audit + recommended items + evidence links). "
+        "DO NOT invent studies, authors, DOIs, or citations. "
+        "If a recommended item has Evidence_Link, you may reference it directly. "
+        "If Evidence_Link is missing, say you don't have a linked study for that item yet. "
+        "Keep answers practical, short, and athlete-friendly. "
+        "If user asks medical questions, advise consulting a qualified professional."
+    )
+
+    # We pass context as the first user message, then the chat history.
+    full = [{"role": "system", "content": system}]
+    full.append({"role": "user", "content": "CONTEXT:\n" + json.dumps(context)})
+
+    # Now append the existing chat history (user/assistant)
+    for m in messages:
+        if m.get("role") in {"user", "assistant"}:
+            full.append({"role": m["role"], "content": m.get("content", "")})
+
+    resp = client.chat.completions.create(
+        model=model,
+        messages=full,
+        temperature=0.2
+    )
+    return resp.choices[0].message.content.strip()
+
+
 # =========================================================
 # APP START
 # =========================================================
-def require_file(path: str, friendly: str):
-    if not os.path.exists(path):
-        st.error(f"Missing {friendly}: `{path}`")
-        st.info("Fix: upload the file to your GitHub repo in the correct folder, then reboot the app.")
-        st.stop()
-
 require_file(PRODUCTS_CSV, "products.csv (data/products.csv)")
 require_file(EXCLUSIONS_CSV, "exclusions.csv (data/exclusions.csv)")
 require_file(LOGO_PATH, "logo (assets/ibex_logo.png)")
@@ -673,10 +789,16 @@ if "last_plan" not in st.session_state:
     st.session_state.last_plan = "Basic"
 if "last_rid" not in st.session_state:
     st.session_state.last_rid = None
+if "last_intake" not in st.session_state:
+    st.session_state.last_intake = None
+
+# chat state
+if "chat_messages" not in st.session_state:
+    st.session_state.chat_messages = []
 
 render_header()
 
-tabs = st.tabs(["Audit", "Privacy", "FAQ"])
+tabs = st.tabs(["Audit", "Ask IBEX", "Privacy", "FAQ"])
 
 # =========================================================
 # TAB: AUDIT
@@ -696,7 +818,7 @@ with tabs[0]:
                 </div>
                 <div>
                   <span class="ibx-badge">Instant audit</span>
-                  <span class="ibx-badge">Plan-aware</span>
+                  <span class="ibx-badge">Evidence-linked</span>
                 </div>
               </div>
             </div>
@@ -753,6 +875,8 @@ with tabs[0]:
         if st.button("Start a new audit"):
             st.session_state.ai_out = None
             st.session_state.last_rid = None
+            st.session_state.last_intake = None
+            st.session_state.chat_messages = []
             st.rerun()
 
     else:
@@ -806,7 +930,7 @@ with tabs[0]:
             st.markdown("### Goals")
             goals = st.multiselect(
                 "Select all that apply",
-                ["strength","endurance","recovery","sleep","gut","joints","focus","general health"]
+                ["strength", "endurance", "recovery", "sleep", "gut", "joints", "focus", "general health"]
             )
 
             st.markdown("### Recovery & lifestyle")
@@ -823,10 +947,7 @@ with tabs[0]:
             open_notes = st.text_area("Other context or concerns (optional)", placeholder="Anything that would help tailor the plan…")
 
             st.markdown("---")
-
-            # ✅ CHANGE: remove checkbox gating (trust barrier)
             st.caption("Not medical advice. For details, see the Privacy tab.")
-
             submitted = st.form_submit_button("Build my system")
 
         if submitted:
@@ -862,7 +983,7 @@ with tabs[0]:
 
             # ✅ Keep DB save (but don't block results)
             try:
-                row_id = save_to_supabase(rid, intake, ai_out)
+                _ = save_to_supabase(rid, intake, ai_out)
                 st.sidebar.success("Saved ✅")
             except Exception as e:
                 st.sidebar.error("Save failed (DB)")
@@ -871,19 +992,63 @@ with tabs[0]:
             st.session_state.ai_out = ai_out
             st.session_state.last_plan = plan
             st.session_state.last_rid = rid
+            st.session_state.last_intake = intake
+            st.session_state.chat_messages = []
             st.rerun()
+
+
+# =========================================================
+# TAB: ASK IBEX (AI CHAT)
+# =========================================================
+with tabs[1]:
+    st.markdown(
+        """
+        <div class="ibx-card">
+          <div style="font-size:28px; font-weight:950; color:#0f172a;">Ask IBEX</div>
+          <div class="ibx-muted" style="margin-top:6px;">
+            Ask questions about your stack, timing, and tradeoffs. Evidence links are shown only when attached per product.
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    if not st.session_state.ai_out or not st.session_state.last_intake:
+        st.info("Run an audit first. Then your personalized chat will appear here.")
+    else:
+        # render chat history
+        for m in st.session_state.chat_messages:
+            with st.chat_message(m["role"]):
+                st.markdown(m["content"])
+
+        prompt = st.chat_input("Ask a question (e.g., “Why creatine?” “Can I take these together?” “What if I travel?”)")
+        if prompt:
+            st.session_state.chat_messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.markdown(prompt)
+
+            context = build_chat_context(st.session_state.last_intake, st.session_state.ai_out, products)
+
+            with st.spinner("IBEX is thinking…"):
+                answer = run_chat_answer(st.session_state.chat_messages, context)
+
+            st.session_state.chat_messages.append({"role": "assistant", "content": answer})
+            with st.chat_message("assistant"):
+                st.markdown(answer)
+
 
 # =========================================================
 # TAB: PRIVACY
 # =========================================================
-with tabs[1]:
+with tabs[2]:
     render_privacy_policy()
 
 # =========================================================
 # TAB: FAQ
 # =========================================================
-with tabs[2]:
+with tabs[3]:
     render_faq()
+
 
 
 
