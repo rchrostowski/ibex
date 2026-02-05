@@ -331,6 +331,14 @@ def parse_money(val) -> float:
         return 0.0
 
 
+def norm_key(val: str) -> str:
+    """Normalize strings for dedupe comparisons (ingredient/category)."""
+    s = (val or "")
+    s = str(s).strip().lower()
+    s = " ".join(s.split())
+    return s
+
+
 # =========================================================
 # Supabase client + save function
 # =========================================================
@@ -676,6 +684,8 @@ def run_ai(intake: dict, products_shortlist: pd.DataFrame, exclusions: pd.DataFr
         "STACK CAPS (must follow): "
         f"Cap the stack to {lim['max_units']} units max, where any item with Est_Monthly_Cost >= $20 counts as 2 units. "
         f"Schedule caps: AM ≤ {lim['max_am']}, PM ≤ {lim['max_pm']}, Training ≤ {lim['max_training']}. "
+        "CRITICAL: Do NOT recommend duplicates. Never include more than one product for the same Ingredient "
+        "(case-insensitive; e.g., powder vs gummy counts as a duplicate). Choose the single best fit. "
         "If more items could help, include them as optional suggestions in notes_for_athlete instead of adding them to included_product_ids. "
         "Return ONLY valid JSON matching output_format schema."
     )
@@ -712,6 +722,7 @@ def run_ai(intake: dict, products_shortlist: pd.DataFrame, exclusions: pd.DataFr
 
 # =========================================================
 # ENFORCE STACK CAPS (HARD) — last line of defense
+# + ALSO ENFORCE "NO DUPLICATE INGREDIENTS" (powder vs gummy, etc.)
 # =========================================================
 def enforce_caps(ai_out: dict, plan: str, products_df: pd.DataFrame) -> dict:
     lim = PLAN_LIMITS.get(plan, {"max_units": 6, "supp_budget": 50.0, "max_am": 3, "max_pm": 3, "max_training": 2})
@@ -731,37 +742,68 @@ def enforce_caps(ai_out: dict, plan: str, products_df: pd.DataFrame) -> dict:
     for pid in included:
         p = prod_map.get(pid, {})
         cat = str(p.get("Category", "") or "").strip()
+        ing = str(p.get("Ingredient", "") or "").strip()
+        form = str(p.get("Serving_Form", "") or "").strip()
         est = parse_money(p.get("Est_Monthly_Cost", 0))
         nsf = is_yes(p.get("NSF_Certified", ""))
         tpt = str(p.get("Third_Party_Tested", "")).strip().lower() in {"y", "yes", "true", "1", "unknown"}
         core = cat in BASIC_CORE_CATEGORIES
+
+        # Primary dedupe key: Ingredient (normalized). Fallback to Category if Ingredient missing.
+        dup_key = norm_key(ing) if norm_key(ing) else f"cat::{norm_key(cat)}"
+
         rows.append({
             "pid": pid,
             "cat": cat,
-            "est": est,
-            "nsf": nsf,
-            "tpt": tpt,
-            "core": core,
-            "order": model_order.get(pid, 9999)
+            "ing": ing,
+            "form": form,
+            "est": float(est or 0.0),
+            "nsf": bool(nsf),
+            "tpt": bool(tpt),
+            "core": bool(core),
+            "order": model_order.get(pid, 9999),
+            "dup_key": dup_key,
         })
 
+    # Rank preference:
+    # 1) core categories first (esp for Basic)
+    # 2) NSF
+    # 3) third-party tested
+    # 4) earlier model order
     rows.sort(key=lambda r: (not r["core"], not r["nsf"], not r["tpt"], r["order"]))
 
+    # ---- NEW: DEDUPE SAME INGREDIENT (powder vs gummy etc.) ----
+    kept = []
+    seen_keys = set()
+    dropped = []
+
+    for r in rows:
+        if r["dup_key"] in seen_keys:
+            dropped.append(r)
+            continue
+        kept.append(r)
+        seen_keys.add(r["dup_key"])
+
+    if dropped:
+        msg = "We removed duplicate forms of the same supplement (e.g., powder vs gummy) to keep your stack clean."
+        if msg not in notes:
+            notes = [msg] + notes
+
+    # Now enforce unit caps on the deduped set (preserving the same ranking)
     picked = []
     used_units = 0
 
-    for r in rows:
-        cost = float(r["est"] or 0.0)
-        units = item_units(cost)
+    for r in kept:
+        units = item_units(r["est"])
         if used_units + units > lim["max_units"]:
             continue
         picked.append(r["pid"])
         used_units += units
 
     if not picked:
-        for r in rows:
-            cost = float(r["est"] or 0.0)
-            units = item_units(cost)
+        # Fallback: take first items until cap
+        for r in kept:
+            units = item_units(r["est"])
             if used_units + units > lim["max_units"]:
                 continue
             picked.append(r["pid"])
@@ -1401,6 +1443,7 @@ with tabs[0]:
             with st.spinner("Generating your system…"):
                 ai_out = run_ai(intake, shortlist, exclusions, plan)
 
+            # This now also dedupes same-ingredient products (powder vs gummy) before capping
             ai_out = enforce_caps(ai_out, plan, products)
 
             try:
@@ -1466,7 +1509,6 @@ with tabs[2]:
 # =========================================================
 with tabs[3]:
     render_faq()
-
 
 
 
