@@ -1,25 +1,11 @@
-"""
-IBEX Landing Page
-─────────────────
-Instructions:
-  1. Create a folder called  pages/  in your repo root (same level as app.py)
-  2. Put this file inside it:  pages/00_Home.py
-  3. Rename your existing app.py → pages/01_Audit.py
-     (Streamlit sorts pages alphabetically, so 00 comes first)
-  4. Push to GitHub — Streamlit Cloud will auto-detect the multi-page structure.
 
-That's it. No other changes needed.
+"""
+IBEX Landing Page — pages/00_Home.py
+Do NOT call st.set_page_config() here — it lives in root app.py only.
 """
 
 import streamlit as st
 import streamlit.components.v1 as components
-
-st.set_page_config(
-    page_title="IBEX — Precision Supplements for D1 Athletes",
-    page_icon="assets/ibex_logo.png",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-)
 
 # Hide all Streamlit default UI chrome
 st.markdown("""
@@ -963,4 +949,4 @@ function runDemo(){{
 </html>
 """
 
-components.html(PAGE_HTML, height=9000, scrolling=False)
+components.html(PAGE_HTML, height=7000, scrolling=True)
